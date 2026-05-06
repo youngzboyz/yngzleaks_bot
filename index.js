@@ -4,9 +4,12 @@ const app = express();
 
 const { Client, GatewayIntentBits } = require('discord.js');
 
-// ================= ENV CHECK =================
+// ================= DEBUG ENV =================
 console.log("🚀 INICIO BOT");
 console.log("TOKEN EXISTE:", !!process.env.TOKEN);
+
+// (debug opcional)
+console.log("TOKEN LENGTH:", process.env.TOKEN?.length);
 
 // ================= KEEP ALIVE (RENDER) =================
 app.get('/', (req, res) => {
@@ -25,18 +28,12 @@ const client = new Client({
     intents: [GatewayIntentBits.Guilds]
 });
 
-// Debug útil
+// DEBUG
 client.on('debug', console.log);
 client.on('error', console.error);
 client.on('warn', console.warn);
 
-client.on('shardConnecting', (id) => console.log(`Shard ${id} connecting...`));
-client.on('shardReady', (id) => console.log(`Shard ${id} ready`));
-client.on('shardDisconnect', (event, id) => console.log(`Shard ${id} disconnected`, event?.code));
-client.on('shardError', (error, id) => console.error(`Shard ${id} error`, error));
-
-// ================= READY =================
-
+// READY
 client.once('ready', () => {
     console.log("✅ BOT ONLINE:", client.user.tag);
 });
@@ -45,7 +42,7 @@ client.once('ready', () => {
 
 console.log("🔐 INICIANDO LOGIN...");
 
-client.login(process.env.TOKEN)
+client.login(process.env.TOKEN?.trim())
     .then(() => {
         console.log("✅ LOGIN OK");
     })
