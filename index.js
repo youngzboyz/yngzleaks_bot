@@ -17,7 +17,7 @@ const { Routes } = require('discord-api-types/v10');
 
 const fs = require('fs');
 
-// ================= DEBUG =================
+// ================= DEBUG ENV =================
 console.log("TOKEN OK:", !!process.env.TOKEN);
 console.log("CLIENT_ID:", process.env.CLIENT_ID);
 console.log("GUILD_ID:", process.env.GUILD_ID);
@@ -79,7 +79,7 @@ const commands = [
 
     new SlashCommandBuilder()
         .setName('announce')
-        .setDescription('Anuncio del servidor')
+        .setDescription('Anuncio')
         .addStringOption(opt =>
             opt.setName('message').setDescription('Mensaje').setRequired(true)
         ),
@@ -113,7 +113,7 @@ client.once('ready', async () => {
     }
 });
 
-// ================= INTERACTIONS =================
+// ================= EVENTS =================
 
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
@@ -185,6 +185,8 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-// ================= LOGIN =================
+// ================= LOGIN (DEBUG REAL) =================
 
-client.login(process.env.TOKEN);
+client.login(process.env.TOKEN)
+    .then(() => console.log("LOGIN OK ✔️"))
+    .catch(err => console.error("LOGIN ERROR ❌", err));
