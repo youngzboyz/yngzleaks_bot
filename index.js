@@ -15,7 +15,7 @@ const { Routes } = require('discord-api-types/v10');
 
 const fs = require('fs');
 
-// ================= DEBUG ENV =================
+// ================= ENV CHECK =================
 console.log("TOKEN OK:", !!process.env.TOKEN);
 console.log("CLIENT_ID:", process.env.CLIENT_ID);
 console.log("GUILD_ID:", process.env.GUILD_ID);
@@ -34,6 +34,11 @@ app.listen(3000, () => {
 const client = new Client({
     intents: [GatewayIntentBits.Guilds]
 });
+
+// 🔥 DEBUG EVENTS (clave para ver errores reales)
+client.on('debug', console.log);
+client.on('error', console.error);
+client.on('warn', console.warn);
 
 // ================= COMMANDS =================
 
@@ -181,16 +186,14 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-// ================= LOGIN DEBUG =================
+// ================= LOGIN =================
 
-console.log("ANTES DE LOGIN");
+console.log("🚀 INICIANDO LOGIN...");
 
 client.login(process.env.TOKEN)
     .then(() => {
-        console.log("LOGIN OK ✔️");
+        console.log("LOGIN OK ✔️ BOT CONECTADO");
     })
     .catch(err => {
         console.error("LOGIN ERROR ❌", err);
     });
-
-console.log("DESPUES DE LOGIN");
