@@ -1,13 +1,7 @@
 require('dotenv').config();
-const {
-    Client,
-    GatewayIntentBits,
-    REST,
-    Routes,
-    SlashCommandBuilder,
-    PermissionFlagsBits,
-    EmbedBuilder
-} = require('discord.js');
+
+const express = require('express');
+const app = express();
 
 const {
     Client,
@@ -21,10 +15,20 @@ const {
 
 const fs = require('fs');
 
-require('dotenv').config();
 const TOKEN = process.env.TOKEN;
 
-const client = new Client({
+// ================= KEEP ALIVE =================
+app.get('/', (req, res) => {
+    res.send('Bot online');
+});
+
+app.listen(3000, () => {
+    console.log('Keep alive activo en puerto 3000');
+});
+
+// ================= BOT =================
+
+const client = new ({
     intents: [GatewayIntentBits.Guilds]
 });
 
@@ -100,12 +104,10 @@ client.on('interactionCreate', async interaction => {
 
     const { commandName } = interaction;
 
-    // PING
     if (commandName === 'ping') {
         return interaction.reply('🏓 Pong!');
     }
 
-    // KICK
     if (commandName === 'kick') {
         const user = interaction.options.getUser('user');
         const member = await interaction.guild.members.fetch(user.id);
@@ -113,7 +115,6 @@ client.on('interactionCreate', async interaction => {
         return interaction.reply(`👢 ${user.tag} expulsado`);
     }
 
-    // BAN
     if (commandName === 'ban') {
         const user = interaction.options.getUser('user');
         const member = await interaction.guild.members.fetch(user.id);
@@ -121,7 +122,6 @@ client.on('interactionCreate', async interaction => {
         return interaction.reply(`🔨 ${user.tag} baneado`);
     }
 
-    // WARN
     if (commandName === 'warn') {
         const user = interaction.options.getUser('user');
         const reason = interaction.options.getString('reason');
@@ -139,26 +139,23 @@ client.on('interactionCreate', async interaction => {
         return interaction.reply(`⚠️ ${user.tag} advertido: ${reason}`);
     }
 
-    // CLEAR
     if (commandName === 'clear') {
         const amount = interaction.options.getInteger('amount');
         const messages = await interaction.channel.bulkDelete(amount);
         return interaction.reply({ content: `🧹 ${messages.size} mensajes borrados`, ephemeral: true });
     }
 
-    // ANNOUNCE
     if (commandName === 'announce') {
         const msg = interaction.options.getString('message');
 
         const embed = new EmbedBuilder()
             .setTitle('📢 Anuncio')
             .setDescription(msg)
-            .setColor('Blue');
+            .setColor(0x3498db);
 
         return interaction.channel.send({ embeds: [embed] });
     }
 
-    // TICKET
     if (commandName === 'ticket') {
         const channel = await interaction.guild.channels.create({
             name: `ticket-${interaction.user.username}`,
@@ -171,5 +168,7 @@ client.on('interactionCreate', async interaction => {
         });
     }
 });
+
+// ================= LOGIN =================
 
 client.login(TOKEN);
