@@ -1,3 +1,4 @@
+
 require('dotenv').config();
 
 const express = require('express');
@@ -16,9 +17,10 @@ const { Routes } = require('discord-api-types/v10');
 
 const fs = require('fs');
 
-const TOKEN = process.env.TOKEN;
-const CLIENT_ID = process.env.CLIENT_ID;
-const GUILD_ID = process.env.GUILD_ID;
+// ================= DEBUG =================
+console.log("TOKEN OK:", !!process.env.TOKEN);
+console.log("CLIENT_ID:", process.env.CLIENT_ID);
+console.log("GUILD_ID:", process.env.GUILD_ID);
 
 // ================= KEEP ALIVE =================
 app.get('/', (req, res) => {
@@ -26,7 +28,7 @@ app.get('/', (req, res) => {
 });
 
 app.listen(3000, () => {
-    console.log('Keep alive activo');
+    console.log('Keep alive activo en puerto 3000');
 });
 
 // ================= CLIENT =================
@@ -77,7 +79,7 @@ const commands = [
 
     new SlashCommandBuilder()
         .setName('announce')
-        .setDescription('Anuncio')
+        .setDescription('Anuncio del servidor')
         .addStringOption(opt =>
             opt.setName('message').setDescription('Mensaje').setRequired(true)
         ),
@@ -87,22 +89,31 @@ const commands = [
         .setDescription('Abrir ticket')
 ].map(c => c.toJSON());
 
-// ================= REGISTER COMMANDS =================
+// ================= REST =================
 
-const rest = new REST({ version: '10' }).setToken(TOKEN);
+const rest = new REST({ version: '10' }).setToken(process.env.TOKEN);
+
+// ================= READY =================
 
 client.once('ready', async () => {
     console.log(`Bot conectado como ${client.user.tag}`);
 
-    await rest.put(
-        Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
-        { body: commands }
-    );
+    try {
+        await rest.put(
+            Routes.applicationGuildCommands(
+                process.env.CLIENT_ID,
+                process.env.GUILD_ID
+            ),
+            { body: commands }
+        );
 
-    console.log('Comandos registrados');
+        console.log('Comandos registrados');
+    } catch (err) {
+        console.error("ERROR registrando comandos:", err);
+    }
 });
 
-// ================= EVENTS =================
+// ================= INTERACTIONS =================
 
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
@@ -176,4 +187,4 @@ client.on('interactionCreate', async interaction => {
 
 // ================= LOGIN =================
 
-client.login(TOKEN);
+client.login(process.env.TOKEN);
