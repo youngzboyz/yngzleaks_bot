@@ -120,9 +120,7 @@ client.on('interactionCreate', async interaction => {
 
     const { commandName } = interaction;
 
-    if (commandName === 'ping') {
-        return interaction.reply('🏓 Pong!');
-    }
+    if (commandName === 'ping') return interaction.reply('🏓 Pong!');
 
     if (commandName === 'kick') {
         const user = interaction.options.getUser('user');
@@ -185,8 +183,16 @@ client.on('interactionCreate', async interaction => {
     }
 });
 
-// ================= LOGIN (DEBUG REAL) =================
+// ================= LOGIN DEBUG =================
+
+console.log("ANTES DE LOGIN");
 
 client.login(process.env.TOKEN)
-    .then(() => console.log("LOGIN OK ✔️"))
-    .catch(err => console.error("LOGIN ERROR ❌", err));
+    .then(() => {
+        console.log("LOGIN OK ✔️");
+    })
+    .catch(err => {
+        console.error("LOGIN ERROR ❌", err);
+    });
+
+console.log("DESPUES DE LOGIN");
