@@ -30,6 +30,11 @@ client.on('debug', console.log);
 client.on('error', console.error);
 client.on('warn', console.warn);
 
+client.on('shardConnecting', (id) => console.log(`Shard ${id} connecting...`));
+client.on('shardReady', (id) => console.log(`Shard ${id} ready`));
+client.on('shardDisconnect', (event, id) => console.log(`Shard ${id} disconnected`, event?.code));
+client.on('shardError', (error, id) => console.error(`Shard ${id} error`, error));
+
 // ================= READY =================
 
 client.once('ready', () => {
