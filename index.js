@@ -2,6 +2,13 @@ require('dotenv').config();
 
 console.log("BOT INSTANCE STARTED");
 
+// 🔒 evita doble instancia
+if (global.botStarted) {
+    console.log("⚠️ Bot ya iniciado, saliendo...");
+    process.exit(0);
+}
+global.botStarted = true;
+
 const express = require('express');
 const app = express();
 
@@ -24,19 +31,62 @@ if (!process.env.TOKEN) {
     process.exit(1);
 }
 
-// ================= SERVER =================
-app.get('/', (req, res) => res.send('Bot online'));
+// ================= MIDDLEWARE WEB =================
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
+// ================= WEB PANEL =================
+app.get('/', (req, res) => {
+    res.send(`
+        <h1>🤖 Bot Panel</h1>
+
+        <h2>📢 Anuncio</h2>
+
+        <form method="POST" action="/api/announce">
+            <input name="titulo" placeholder="Título"><br><br>
+            <textarea name="mensaje" placeholder="Mensaje"></textarea><br><br>
+            <button type="submit">Enviar</button>
+        </form>
+    `);
+});
+
+// ================= API PANEL =================
+app.post("/api/announce", async (req, res) => {
+    try {
+        const { titulo, mensaje } = req.body;
+
+        const guild = client.guilds.cache.first();
+        if (!guild) return res.status(400).send("No guild");
+
+        const channel = guild.channels.cache.find(c => c.name === "general");
+        if (!channel) return res.status(400).send("No channel");
+
+        const embed = new EmbedBuilder()
+            .setTitle(`📢 ${titulo}`)
+            .setDescription(mensaje)
+            .setColor(0x000000);
+
+        await channel.send({ embeds: [embed] });
+
+        res.json({ ok: true });
+
+    } catch (err) {
+        console.error(err);
+        res.status(500).send("Error");
+    }
+});
+
+// ================= SERVER =================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`🌐 Web server activo en puerto ${PORT}`);
 });
 
-// ================= CLIENT (FIX IMPORTANTE) =================
+// ================= CLIENT =================
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMembers // 🔥 ESTO ES LO QUE TE FALTABA
+        GatewayIntentBits.GuildMembers
     ]
 });
 
@@ -45,7 +95,7 @@ client.once("ready", () => {
     console.log("✅ BOT ONLINE:", client.user.tag);
 });
 
-// ================= LOG =================
+// ================= LOG SYSTEM =================
 async function sendLog(guild, title, description, color = 0xff0000) {
     const logChannel = guild.channels.cache.find(c => c.name === "logs");
     if (!logChannel) return;
@@ -59,99 +109,95 @@ async function sendLog(guild, title, description, color = 0xff0000) {
     logChannel.send({ embeds: [embed] });
 }
 
-// ================= INTERACTIONS =================
+// ================= INTERACTIONS (FIX PRO) =================
 client.on('interactionCreate', async interaction => {
 
-    // ================= SLASH COMMANDS =================
     if (interaction.isChatInputCommand()) {
 
-        const { commandName } = interaction;
-
-        // 🔥 DEFER PARA EVITAR "NO RESPONDE"
-        await interaction.deferReply({ ephemeral: false }).catch(() => {});
+        const cmd = interaction.commandName;
 
         try {
 
-            // ================= KICK =================
-            if (commandName === 'kick') {
-                const user = interaction.options.getUser('user');
-                const member = await interaction.guild.members.fetch(user.id);
+            await interaction.deferReply().catch(() => {});
 
-                await member.kick();
-                await sendLog(interaction.guild, "👢 Kick", `${user.tag} expulsado por ${interaction.user.tag}`);
+            switch (cmd) {
 
-                return interaction.editReply(`👢 ${user.tag} expulsado`);
-            }
+                case "kick": {
+                    const user = interaction.options.getUser("user");
+                    const member = await interaction.guild.members.fetch(user.id);
 
-            // ================= BAN =================
-            if (commandName === 'ban') {
-                const user = interaction.options.getUser('user');
-                const member = await interaction.guild.members.fetch(user.id);
+                    await member.kick();
+                    await sendLog(interaction.guild, "👢 Kick", `${user.tag}`);
 
-                await member.ban();
-                await sendLog(interaction.guild, "🔨 Ban", `${user.tag} baneado por ${interaction.user.tag}`);
+                    return interaction.editReply(`👢 ${user.tag} expulsado`);
+                }
 
-                return interaction.editReply(`🔨 ${user.tag} baneado`);
-            }
+                case "ban": {
+                    const user = interaction.options.getUser("user");
+                    const member = await interaction.guild.members.fetch(user.id);
 
-            // ================= WARN =================
-            if (commandName === 'warn') {
-                const user = interaction.options.getUser('user');
-                const reason = interaction.options.getString('reason');
+                    await member.ban();
+                    await sendLog(interaction.guild, "🔨 Ban", `${user.tag}`);
 
-                await sendLog(
-                    interaction.guild,
-                    "⚠️ Warn",
-                    `${user.tag} advertido por ${interaction.user.tag}\nMotivo: ${reason}`
-                );
+                    return interaction.editReply(`🔨 ${user.tag} baneado`);
+                }
 
-                return interaction.editReply(`⚠️ ${user.tag} advertido`);
-            }
+                case "warn": {
+                    const user = interaction.options.getUser("user");
+                    const reason = interaction.options.getString("reason");
 
-            // ================= ANNOUNCE (FIX FINAL) =================
-            if (commandName === 'announce') {
+                    await sendLog(interaction.guild, "⚠️ Warn", `${user.tag}\n${reason}`);
 
-                const titulo = interaction.options.getString('titulo');
-                const mensaje = interaction.options.getString('mensaje');
+                    return interaction.editReply(`⚠️ ${user.tag} advertido`);
+                }
 
-                const embed = new EmbedBuilder()
-                    .setTitle(`📢 ${titulo}`)
-                    .setDescription(mensaje)
-                    .setColor(0x000000);
+                case "announce": {
+                    const titulo = interaction.options.getString("titulo");
+                    const mensaje = interaction.options.getString("mensaje");
 
-                await interaction.channel.send({ embeds: [embed] });
+                    const embed = new EmbedBuilder()
+                        .setTitle(`📢 ${titulo}`)
+                        .setDescription(mensaje)
+                        .setColor(0x000000);
 
-                return interaction.editReply("📢 Anuncio enviado");
-            }
+                    await interaction.channel.send({ embeds: [embed] });
 
-            // ================= TICKET PANEL =================
-            if (commandName === 'ticketpanel') {
+                    return interaction.editReply("📢 enviado");
+                }
 
-                const button = new ActionRowBuilder().addComponents(
-                    new ButtonBuilder()
-                        .setCustomId('create_ticket')
-                        .setLabel('🎫 Crear Ticket')
-                        .setStyle(ButtonStyle.Primary)
-                );
+                case "ticketpanel": {
+                    const button = new ActionRowBuilder().addComponents(
+                        new ButtonBuilder()
+                            .setCustomId("create_ticket")
+                            .setLabel("🎫 Crear Ticket")
+                            .setStyle(ButtonStyle.Primary)
+                    );
 
-                await interaction.channel.send({
-                    content: "🎫 Sistema de tickets",
-                    components: [button]
-                });
+                    await interaction.channel.send({
+                        content: "🎫 Sistema de tickets",
+                        components: [button]
+                    });
 
-                return interaction.editReply("Panel creado");
+                    return interaction.editReply("panel creado");
+                }
             }
 
         } catch (err) {
-            console.error(err);
-            return interaction.editReply("❌ Error ejecutando comando");
+            console.error("COMMAND ERROR:", err);
+
+            if (!interaction.replied) {
+                return interaction.reply({
+                    content: "❌ Error ejecutando comando",
+                    ephemeral: true
+                });
+            }
         }
     }
 
-    // ================= BUTTONS =================
+    // ================= BUTTON TICKETS =================
     if (interaction.isButton()) {
 
-        if (interaction.customId === 'create_ticket') {
+        if (interaction.customId === "create_ticket") {
 
             const existing = interaction.guild.channels.cache.find(
                 c => c.name === `ticket-${interaction.user.id}`
