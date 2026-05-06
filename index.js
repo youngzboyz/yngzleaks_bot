@@ -6,16 +6,19 @@ const app = express();
 const {
     Client,
     GatewayIntentBits,
-    REST,
-    Routes,
     SlashCommandBuilder,
     PermissionFlagsBits,
     EmbedBuilder
 } = require('discord.js');
 
+const { REST } = require('@discordjs/rest');
+const { Routes } = require('discord-api-types/v10');
+
 const fs = require('fs');
 
 const TOKEN = process.env.TOKEN;
+const CLIENT_ID = process.env.CLIENT_ID;
+const GUILD_ID = process.env.GUILD_ID;
 
 // ================= KEEP ALIVE =================
 app.get('/', (req, res) => {
@@ -23,19 +26,21 @@ app.get('/', (req, res) => {
 });
 
 app.listen(3000, () => {
-    console.log('Keep alive activo en puerto 3000');
+    console.log('Keep alive activo');
 });
 
-// ================= BOT =================
+// ================= CLIENT =================
 
-const client = new ({
+const client = new Client({
     intents: [GatewayIntentBits.Guilds]
 });
 
 // ================= COMMANDS =================
 
 const commands = [
-    new SlashCommandBuilder().setName('ping').setDescription('🏓 Pong!'),
+    new SlashCommandBuilder()
+        .setName('ping')
+        .setDescription('🏓 Pong!'),
 
     new SlashCommandBuilder()
         .setName('kick')
@@ -72,14 +77,14 @@ const commands = [
 
     new SlashCommandBuilder()
         .setName('announce')
-        .setDescription('Anuncio del servidor')
+        .setDescription('Anuncio')
         .addStringOption(opt =>
             opt.setName('message').setDescription('Mensaje').setRequired(true)
         ),
 
     new SlashCommandBuilder()
         .setName('ticket')
-        .setDescription('Abrir ticket de soporte')
+        .setDescription('Abrir ticket')
 ].map(c => c.toJSON());
 
 // ================= REGISTER COMMANDS =================
@@ -90,14 +95,14 @@ client.once('ready', async () => {
     console.log(`Bot conectado como ${client.user.tag}`);
 
     await rest.put(
-        Routes.applicationGuildCommands(client.user.id, '1014210083955163197'),
+        Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
         { body: commands }
     );
 
     console.log('Comandos registrados');
 });
 
-// ================= INTERACTIONS =================
+// ================= EVENTS =================
 
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
@@ -136,13 +141,13 @@ client.on('interactionCreate', async interaction => {
 
         fs.writeFileSync('./warnings.json', JSON.stringify(data, null, 2));
 
-        return interaction.reply(`⚠️ ${user.tag} advertido: ${reason}`);
+        return interaction.reply(`⚠️ ${user.tag} advertido`);
     }
 
     if (commandName === 'clear') {
         const amount = interaction.options.getInteger('amount');
-        const messages = await interaction.channel.bulkDelete(amount);
-        return interaction.reply({ content: `🧹 ${messages.size} mensajes borrados`, ephemeral: true });
+        const msgs = await interaction.channel.bulkDelete(amount);
+        return interaction.reply({ content: `🧹 ${msgs.size} mensajes borrados`, ephemeral: true });
     }
 
     if (commandName === 'announce') {
