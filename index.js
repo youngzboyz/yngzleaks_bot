@@ -1,4 +1,12 @@
+if (global.botStarted) {
+    console.log("⚠️ Bot ya iniciado, saliendo...");
+    process.exit(0);
+}
+global.botStarted = true;
+
 require('dotenv').config();
+
+console.log("BOT INSTANCE STARTED");
 
 const express = require('express');
 const app = express();
