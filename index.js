@@ -2,13 +2,6 @@ require('dotenv').config();
 
 console.log("BOT INSTANCE STARTED");
 
-// 🔒 evita doble instancia
-if (global.botStarted) {
-    console.log("⚠️ Bot ya iniciado, saliendo...");
-    process.exit(0);
-}
-global.botStarted = true;
-
 const express = require('express');
 const app = express();
 
@@ -39,17 +32,20 @@ app.listen(PORT, () => {
     console.log(`🌐 Web server activo en puerto ${PORT}`);
 });
 
-// ================= CLIENT =================
+// ================= CLIENT (FIX IMPORTANTE) =================
 const client = new Client({
-    intents: [GatewayIntentBits.Guilds]
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMembers // 🔥 ESTO ES LO QUE TE FALTABA
+    ]
 });
 
-// ================= READY (FIX REAL) =================
+// ================= READY =================
 client.once("ready", () => {
     console.log("✅ BOT ONLINE:", client.user.tag);
 });
 
-// ================= LOG FUNCTION =================
+// ================= LOG =================
 async function sendLog(guild, title, description, color = 0xff0000) {
     const logChannel = guild.channels.cache.find(c => c.name === "logs");
     if (!logChannel) return;
@@ -71,84 +67,88 @@ client.on('interactionCreate', async interaction => {
 
         const { commandName } = interaction;
 
-        // 👢 KICK (FIX)
-        if (commandName === 'kick') {
-            const user = interaction.options.getUser('user');
-            const member = await interaction.guild.members.fetch(user.id).catch(() => null);
+        // 🔥 DEFER PARA EVITAR "NO RESPONDE"
+        await interaction.deferReply({ ephemeral: false }).catch(() => {});
 
-            if (!member) return interaction.reply({ content: "Usuario no encontrado", ephemeral: true });
+        try {
 
-            await member.kick();
-            await sendLog(interaction.guild, "👢 Kick", `${user.tag} expulsado por ${interaction.user.tag}`);
-            return interaction.reply(`👢 ${user.tag} expulsado`);
-        }
+            // ================= KICK =================
+            if (commandName === 'kick') {
+                const user = interaction.options.getUser('user');
+                const member = await interaction.guild.members.fetch(user.id);
 
-        // 🔨 BAN (FIX)
-        if (commandName === 'ban') {
-            const user = interaction.options.getUser('user');
-            const member = await interaction.guild.members.fetch(user.id).catch(() => null);
+                await member.kick();
+                await sendLog(interaction.guild, "👢 Kick", `${user.tag} expulsado por ${interaction.user.tag}`);
 
-            if (!member) return interaction.reply({ content: "Usuario no encontrado", ephemeral: true });
-
-            await member.ban();
-            await sendLog(interaction.guild, "🔨 Ban", `${user.tag} baneado por ${interaction.user.tag}`);
-            return interaction.reply(`🔨 ${user.tag} baneado`);
-        }
-
-        // ⚠️ WARN (FIX ESTABLE)
-        if (commandName === 'warn') {
-            const user = interaction.options.getUser('user');
-            const reason = interaction.options.getString('reason');
-
-            if (!user) {
-                return interaction.reply({ content: "Usuario inválido", ephemeral: true });
+                return interaction.editReply(`👢 ${user.tag} expulsado`);
             }
 
-            await sendLog(
-                interaction.guild,
-                "⚠️ Warn",
-                `${user.tag} advertido por ${interaction.user.tag}\nMotivo: ${reason}`
-            );
+            // ================= BAN =================
+            if (commandName === 'ban') {
+                const user = interaction.options.getUser('user');
+                const member = await interaction.guild.members.fetch(user.id);
 
-            return interaction.reply(`⚠️ ${user.tag} advertido`);
-        }
+                await member.ban();
+                await sendLog(interaction.guild, "🔨 Ban", `${user.tag} baneado por ${interaction.user.tag}`);
 
-        // 📢 ANNOUNCE (CLEAN)
-        if (commandName === 'announce') {
+                return interaction.editReply(`🔨 ${user.tag} baneado`);
+            }
 
-            const titulo = interaction.options.getString('titulo');
-            const mensaje = interaction.options.getString('mensaje');
+            // ================= WARN =================
+            if (commandName === 'warn') {
+                const user = interaction.options.getUser('user');
+                const reason = interaction.options.getString('reason');
 
-            const embed = new EmbedBuilder()
-                .setTitle(`📢 ${titulo}`)
-                .setDescription(mensaje)
-                .setColor(0x000000);
+                await sendLog(
+                    interaction.guild,
+                    "⚠️ Warn",
+                    `${user.tag} advertido por ${interaction.user.tag}\nMotivo: ${reason}`
+                );
 
-            await interaction.channel.send({ embeds: [embed] });
+                return interaction.editReply(`⚠️ ${user.tag} advertido`);
+            }
 
-            return interaction.reply({ content: "📢 Anuncio enviado", ephemeral: true });
-        }
+            // ================= ANNOUNCE (FIX FINAL) =================
+            if (commandName === 'announce') {
 
-        // 🎫 TICKET PANEL (PRO FIX)
-        if (commandName === 'ticketpanel') {
+                const titulo = interaction.options.getString('titulo');
+                const mensaje = interaction.options.getString('mensaje');
 
-            const button = new ActionRowBuilder().addComponents(
-                new ButtonBuilder()
-                    .setCustomId('create_ticket')
-                    .setLabel('🎫 Crear Ticket')
-                    .setStyle(ButtonStyle.Primary)
-            );
+                const embed = new EmbedBuilder()
+                    .setTitle(`📢 ${titulo}`)
+                    .setDescription(mensaje)
+                    .setColor(0x000000);
 
-            await interaction.channel.send({
-                content: "🎫 Sistema de tickets",
-                components: [button]
-            });
+                await interaction.channel.send({ embeds: [embed] });
 
-            return interaction.reply({ content: "Panel creado", ephemeral: true });
+                return interaction.editReply("📢 Anuncio enviado");
+            }
+
+            // ================= TICKET PANEL =================
+            if (commandName === 'ticketpanel') {
+
+                const button = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder()
+                        .setCustomId('create_ticket')
+                        .setLabel('🎫 Crear Ticket')
+                        .setStyle(ButtonStyle.Primary)
+                );
+
+                await interaction.channel.send({
+                    content: "🎫 Sistema de tickets",
+                    components: [button]
+                });
+
+                return interaction.editReply("Panel creado");
+            }
+
+        } catch (err) {
+            console.error(err);
+            return interaction.editReply("❌ Error ejecutando comando");
         }
     }
 
-    // ================= BUTTON TICKETS =================
+    // ================= BUTTONS =================
     if (interaction.isButton()) {
 
         if (interaction.customId === 'create_ticket') {
