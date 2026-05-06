@@ -1,4 +1,4 @@
-<<<<<<< HEAD
+
 import 'dotenv/config';
 import {
   Client,
@@ -65,7 +65,7 @@ client.on('messageCreate', async (message) => {
     await showModLogs(message, args);
   }
 });
-=======
+
 import 'dotenv/config';
 import {
   Client,
