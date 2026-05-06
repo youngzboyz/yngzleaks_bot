@@ -1,4 +1,3 @@
-
 require('dotenv').config();
 
 console.log("BOT INSTANCE STARTED");
@@ -42,13 +41,11 @@ app.listen(PORT, () => {
 
 // ================= CLIENT =================
 const client = new Client({
-    intents: [
-        GatewayIntentBits.Guilds
-    ]
+    intents: [GatewayIntentBits.Guilds]
 });
 
-// ================= READY =================
-client.once("clientReady", () => {
+// ================= READY (FIX REAL) =================
+client.once("ready", () => {
     console.log("✅ BOT ONLINE:", client.user.tag);
 });
 
@@ -74,51 +71,65 @@ client.on('interactionCreate', async interaction => {
 
         const { commandName } = interaction;
 
-        // 👢 KICK
+        // 👢 KICK (FIX)
         if (commandName === 'kick') {
             const user = interaction.options.getUser('user');
-            const member = await interaction.guild.members.fetch(user.id);
+            const member = await interaction.guild.members.fetch(user.id).catch(() => null);
+
+            if (!member) return interaction.reply({ content: "Usuario no encontrado", ephemeral: true });
 
             await member.kick();
             await sendLog(interaction.guild, "👢 Kick", `${user.tag} expulsado por ${interaction.user.tag}`);
             return interaction.reply(`👢 ${user.tag} expulsado`);
         }
 
-        // 🔨 BAN
+        // 🔨 BAN (FIX)
         if (commandName === 'ban') {
             const user = interaction.options.getUser('user');
-            const member = await interaction.guild.members.fetch(user.id);
+            const member = await interaction.guild.members.fetch(user.id).catch(() => null);
+
+            if (!member) return interaction.reply({ content: "Usuario no encontrado", ephemeral: true });
 
             await member.ban();
             await sendLog(interaction.guild, "🔨 Ban", `${user.tag} baneado por ${interaction.user.tag}`);
             return interaction.reply(`🔨 ${user.tag} baneado`);
         }
 
-        // ⚠️ WARN
+        // ⚠️ WARN (FIX ESTABLE)
         if (commandName === 'warn') {
             const user = interaction.options.getUser('user');
             const reason = interaction.options.getString('reason');
 
-            await sendLog(interaction.guild, "⚠️ Warn", `${user.tag} advertido por ${interaction.user.tag}\nMotivo: ${reason}`);
+            if (!user) {
+                return interaction.reply({ content: "Usuario inválido", ephemeral: true });
+            }
+
+            await sendLog(
+                interaction.guild,
+                "⚠️ Warn",
+                `${user.tag} advertido por ${interaction.user.tag}\nMotivo: ${reason}`
+            );
+
             return interaction.reply(`⚠️ ${user.tag} advertido`);
         }
 
-        // 📢 ANNOUNCE PRO (EMBED NEGRO)
+        // 📢 ANNOUNCE (CLEAN)
         if (commandName === 'announce') {
+
             const titulo = interaction.options.getString('titulo');
             const mensaje = interaction.options.getString('mensaje');
 
             const embed = new EmbedBuilder()
                 .setTitle(`📢 ${titulo}`)
                 .setDescription(mensaje)
-                .setColor(0x000000); // ⚫ negro
+                .setColor(0x000000);
 
             await interaction.channel.send({ embeds: [embed] });
 
             return interaction.reply({ content: "📢 Anuncio enviado", ephemeral: true });
         }
 
-        // 🎫 TICKET PANEL
+        // 🎫 TICKET PANEL (PRO FIX)
         if (commandName === 'ticketpanel') {
 
             const button = new ActionRowBuilder().addComponents(
@@ -129,21 +140,32 @@ client.on('interactionCreate', async interaction => {
             );
 
             await interaction.channel.send({
-                content: "🎫 Sistema de tickets - pulsa el botón para crear uno",
+                content: "🎫 Sistema de tickets",
                 components: [button]
             });
 
-            return interaction.reply({ content: "Panel de tickets creado", ephemeral: true });
+            return interaction.reply({ content: "Panel creado", ephemeral: true });
         }
     }
 
-    // ================= BOTÓN TICKET =================
+    // ================= BUTTON TICKETS =================
     if (interaction.isButton()) {
 
         if (interaction.customId === 'create_ticket') {
 
+            const existing = interaction.guild.channels.cache.find(
+                c => c.name === `ticket-${interaction.user.id}`
+            );
+
+            if (existing) {
+                return interaction.reply({
+                    content: "Ya tienes un ticket abierto",
+                    ephemeral: true
+                });
+            }
+
             const channel = await interaction.guild.channels.create({
-                name: `ticket-${interaction.user.username}`,
+                name: `ticket-${interaction.user.id}`,
                 type: ChannelType.GuildText,
                 permissionOverwrites: [
                     {
