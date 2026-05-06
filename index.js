@@ -1,12 +1,14 @@
+
+require('dotenv').config();
+
+console.log("BOT INSTANCE STARTED");
+
+// 🔒 evita doble instancia
 if (global.botStarted) {
     console.log("⚠️ Bot ya iniciado, saliendo...");
     process.exit(0);
 }
 global.botStarted = true;
-
-require('dotenv').config();
-
-console.log("BOT INSTANCE STARTED");
 
 const express = require('express');
 const app = express();
@@ -15,26 +17,25 @@ const {
     Client,
     GatewayIntentBits,
     EmbedBuilder,
-    ChannelType
+    ChannelType,
+    ActionRowBuilder,
+    ButtonBuilder,
+    ButtonStyle
 } = require('discord.js');
 
 // ================= DEBUG =================
 console.log("🚀 INICIO BOT");
 console.log("TOKEN EXISTE:", !!process.env.TOKEN);
 
-// ❌ EVITA CRASH SI NO HAY TOKEN (MUY IMPORTANTE EN RAILWAY)
 if (!process.env.TOKEN) {
     console.log("❌ TOKEN no encontrado, cerrando...");
     process.exit(1);
 }
 
 // ================= SERVER =================
-app.get('/', (req, res) => {
-    res.send('Bot online');
-});
+app.get('/', (req, res) => res.send('Bot online'));
 
 const PORT = process.env.PORT || 3000;
-
 app.listen(PORT, () => {
     console.log(`🌐 Web server activo en puerto ${PORT}`);
 });
@@ -42,19 +43,11 @@ app.listen(PORT, () => {
 // ================= CLIENT =================
 const client = new Client({
     intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent
+        GatewayIntentBits.Guilds
     ]
 });
 
-// ================= LOGS DEBUG =================
-client.on('debug', console.log);
-client.on('error', console.error);
-client.on('warn', console.warn);
-
-// ================= READY (ARREGLADO) =================
-// ❌ antes tenías clientReady (incorrecto para discord.js v14)
+// ================= READY =================
 client.once("clientReady", () => {
     console.log("✅ BOT ONLINE:", client.user.tag);
 });
@@ -75,74 +68,100 @@ async function sendLog(guild, title, description, color = 0xff0000) {
 
 // ================= INTERACTIONS =================
 client.on('interactionCreate', async interaction => {
-    if (!interaction.isChatInputCommand()) return;
 
-    const { commandName } = interaction;
+    // ================= SLASH COMMANDS =================
+    if (interaction.isChatInputCommand()) {
 
-    if (commandName === 'kick') {
-        const user = interaction.options.getUser('user');
-        const member = await interaction.guild.members.fetch(user.id);
+        const { commandName } = interaction;
 
-        await member.kick();
-        await sendLog(interaction.guild, "👢 Kick", `${user.tag} expulsado por ${interaction.user.tag}`);
-        return interaction.reply(`👢 ${user.tag} expulsado`);
+        // 👢 KICK
+        if (commandName === 'kick') {
+            const user = interaction.options.getUser('user');
+            const member = await interaction.guild.members.fetch(user.id);
+
+            await member.kick();
+            await sendLog(interaction.guild, "👢 Kick", `${user.tag} expulsado por ${interaction.user.tag}`);
+            return interaction.reply(`👢 ${user.tag} expulsado`);
+        }
+
+        // 🔨 BAN
+        if (commandName === 'ban') {
+            const user = interaction.options.getUser('user');
+            const member = await interaction.guild.members.fetch(user.id);
+
+            await member.ban();
+            await sendLog(interaction.guild, "🔨 Ban", `${user.tag} baneado por ${interaction.user.tag}`);
+            return interaction.reply(`🔨 ${user.tag} baneado`);
+        }
+
+        // ⚠️ WARN
+        if (commandName === 'warn') {
+            const user = interaction.options.getUser('user');
+            const reason = interaction.options.getString('reason');
+
+            await sendLog(interaction.guild, "⚠️ Warn", `${user.tag} advertido por ${interaction.user.tag}\nMotivo: ${reason}`);
+            return interaction.reply(`⚠️ ${user.tag} advertido`);
+        }
+
+        // 📢 ANNOUNCE PRO (EMBED NEGRO)
+        if (commandName === 'announce') {
+            const titulo = interaction.options.getString('titulo');
+            const mensaje = interaction.options.getString('mensaje');
+
+            const embed = new EmbedBuilder()
+                .setTitle(`📢 ${titulo}`)
+                .setDescription(mensaje)
+                .setColor(0x000000); // ⚫ negro
+
+            await interaction.channel.send({ embeds: [embed] });
+
+            return interaction.reply({ content: "📢 Anuncio enviado", ephemeral: true });
+        }
+
+        // 🎫 TICKET PANEL
+        if (commandName === 'ticketpanel') {
+
+            const button = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId('create_ticket')
+                    .setLabel('🎫 Crear Ticket')
+                    .setStyle(ButtonStyle.Primary)
+            );
+
+            await interaction.channel.send({
+                content: "🎫 Sistema de tickets - pulsa el botón para crear uno",
+                components: [button]
+            });
+
+            return interaction.reply({ content: "Panel de tickets creado", ephemeral: true });
+        }
     }
 
-    if (commandName === 'ban') {
-        const user = interaction.options.getUser('user');
-        const member = await interaction.guild.members.fetch(user.id);
+    // ================= BOTÓN TICKET =================
+    if (interaction.isButton()) {
 
-        await member.ban();
-        await sendLog(interaction.guild, "🔨 Ban", `${user.tag} baneado por ${interaction.user.tag}`);
-        return interaction.reply(`🔨 ${user.tag} baneado`);
-    }
+        if (interaction.customId === 'create_ticket') {
 
-    if (commandName === 'warn') {
-        const user = interaction.options.getUser('user');
-        const reason = interaction.options.getString('reason');
+            const channel = await interaction.guild.channels.create({
+                name: `ticket-${interaction.user.username}`,
+                type: ChannelType.GuildText,
+                permissionOverwrites: [
+                    {
+                        id: interaction.guild.id,
+                        deny: ['ViewChannel']
+                    },
+                    {
+                        id: interaction.user.id,
+                        allow: ['ViewChannel', 'SendMessages']
+                    }
+                ]
+            });
 
-        await sendLog(interaction.guild, "⚠️ Warn", `${user.tag} advertido por ${interaction.user.tag}\nMotivo: ${reason}`);
-        return interaction.reply(`⚠️ ${user.tag} advertido`);
-    }
-
-    if (commandName === 'announce') {
-        const msg = interaction.options.getString('message');
-
-        const embed = new EmbedBuilder()
-            .setTitle('📢 Anuncio')
-            .setDescription(msg)
-            .setColor(0x3498db);
-
-        await interaction.channel.send({ embeds: [embed] });
-
-        await sendLog(interaction.guild, "📢 Anuncio", `${interaction.user.tag}: ${msg}`, 0x3498db);
-
-        return interaction.reply({ content: "📢 Anuncio enviado", ephemeral: true });
-    }
-
-    if (commandName === 'ticket') {
-
-        const channel = await interaction.guild.channels.create({
-            name: `ticket-${interaction.user.username}`,
-            type: ChannelType.GuildText,
-            permissionOverwrites: [
-                {
-                    id: interaction.guild.id,
-                    deny: ['ViewChannel']
-                },
-                {
-                    id: interaction.user.id,
-                    allow: ['ViewChannel', 'SendMessages']
-                }
-            ]
-        });
-
-        await sendLog(interaction.guild, "🎫 Ticket", `${interaction.user.tag} abrió un ticket`);
-
-        return interaction.reply({
-            content: `🎫 Ticket creado: ${channel}`,
-            ephemeral: true
-        });
+            return interaction.reply({
+                content: `🎫 Ticket creado: ${channel}`,
+                ephemeral: true
+            });
+        }
     }
 });
 
