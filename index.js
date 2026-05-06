@@ -585,4 +585,4 @@ async function logToChannel(guild, embed) {
 }
 
 client.login(process.env.DISCORD_TOKEN);
->>>>>>> facf94c23d6b8e35add4f91dbf1795748987afdf
+ facf94c23d6b8e35add4f91dbf1795748987afdf
