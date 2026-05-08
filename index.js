@@ -163,14 +163,6 @@ client.on('interactionCreate', async (interaction) => {
 
   const { commandName } = interaction;
 
-  if (["anuncio", "setup_tickets"].includes(commandName)) {
-    try {
-      await rest.delete(Routes.applicationCommands(client.user.id) + "/" + interaction.commandId);
-      console.log("Comando viejo eliminado: /" + commandName);
-
-    } catch (e) { console.error(e.message); }
-    return interaction.reply({ content: "*Este comando ya no esta disponible*", ephemeral: true });
-  }
 
   try {
     switch (commandName) {
