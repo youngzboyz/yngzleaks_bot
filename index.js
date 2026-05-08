@@ -165,9 +165,9 @@ client.on('interactionCreate', async (interaction) => {
 
   if (["anuncio", "setup_tickets"].includes(commandName)) {
     try {
-      const restClean = new (require("discord.js").REST)({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
-      await restClean.delete(/commands/\);
-      console.log(Comando viejo eliminado: /\);
+      await rest.delete(Routes.applicationCommands(client.user.id) + "/" + interaction.commandId);
+      console.log("Comando viejo eliminado: /" + commandName);
+
     } catch (e) { console.error(e.message); }
     return interaction.reply({ content: "*Este comando ya no esta disponible*", ephemeral: true });
   }
@@ -828,6 +828,7 @@ app.listen(API_PORT, () => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
 
 
 
