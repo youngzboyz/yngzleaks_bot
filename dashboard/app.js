@@ -423,8 +423,15 @@ async function apiFetch(endpoint, options = {}) {
       headers: { 'Content-Type': 'application/json', ...options.headers },
       ...options
     });
-    return await res.json();
+    const text = await res.text();
+    try {
+      return JSON.parse(text);
+    } catch (e) {
+      console.error('API response not JSON:', text);
+      throw new Error('Respuesta inválida de la API');
+    }
   } catch (e) {
+    if (e.message === 'Respuesta inválida de la API') throw e;
     throw new Error('Bot API no disponible');
   }
 }
