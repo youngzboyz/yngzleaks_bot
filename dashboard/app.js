@@ -477,15 +477,17 @@ async function fetchBotStatus() {
       document.getElementById('btnStopBot').style.opacity = '1';
       
       if (data.maintenance) {
-        document.getElementById('btnStartBot').textContent = '▶ Activar';
-        document.getElementById('btnStopBot').textContent = '⏹ En Mantenimiento';
-        document.getElementById('btnStopBot').style.background = 'rgba(180,120,0,0.3)';
+        document.getElementById('btnStartBot').textContent = '▶ Activar Bot';
+        document.getElementById('btnStopBot').textContent = '🟡 En Mantenimiento';
+        document.getElementById('btnStopBot').style.background = 'rgba(200,120,0,0.3)';
+        document.getElementById('btnStopBot').style.borderColor = 'rgba(200,120,0,0.6)';
       } else {
-        document.getElementById('btnStartBot').textContent = '▶ Activo';
+        document.getElementById('btnStartBot').textContent = '🟢 Bot Activo';
         document.getElementById('btnStartBot').disabled = true;
         document.getElementById('btnStartBot').style.opacity = '0.5';
-        document.getElementById('btnStopBot').textContent = '⏹ Poner en Mantenimiento';
+        document.getElementById('btnStopBot').textContent = '⏹ Modo Mantenimiento';
         document.getElementById('btnStopBot').style.background = '';
+        document.getElementById('btnStopBot').style.borderColor = '';
       }
     } else {
       indicator.style.background = '#ff4444';
