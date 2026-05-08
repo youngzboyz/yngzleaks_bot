@@ -104,7 +104,7 @@ const commands = [
     .setDescription('Steal emojis from another server')
     .addStringOption(option =>
       option.setName('emojis')
-        .setDescription('Emojis to steal (separated by space)'
+        .setDescription('Emojis to steal (separated by space)')
         .setRequired(true)),
 ].map(command => command.toJSON());
 
@@ -897,6 +897,7 @@ app.listen(API_PORT, () => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
 
 
 
