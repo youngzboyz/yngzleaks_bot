@@ -234,6 +234,8 @@ async function logMod(action) {
   try {
     await sb.from('moderation_logs').insert({
       guild_id: 'dashboard',
+      message_id: 'dashboard_panel',
+      channel_id: 'dashboard_channel',
       action: action,
       moderator_id: 'dashboard_user',
       target_user_id: user,
@@ -246,6 +248,8 @@ async function logMod(action) {
     addLocalLog(action, user, reason);
   }
 }
+
+const SUPABASE_ALLOWED_ACTIONS = ['kick', 'ban', 'mute', 'warn', 'unban', 'unmute'];
 
 const localLogs = [];
 function addLocalLog(action, user, reason) {
@@ -627,18 +631,19 @@ async function saveTicketPanel() {
     // Fallback to Supabase
   }
 
-  // Fallback: save to Supabase
+  // Fallback: save to Supabase (message_id y channel_id son NOT NULL)
   try {
     const { error } = await sb.from('ticket_panels').upsert({
       guild_id: 'dashboard',
-      title: title,
+      title: title || '🈫 Support Ticket System',
       description: desc,
       button_label: btn
     }, { onConflict: 'guild_id' });
     if (error) throw error;
-    showToast('Panel de tickets guardado en Supabase ✓', 'success');
+    showToast('✅ Panel de tickets guardado en Supabase ✓', 'success');
   } catch (e) {
-    showToast('Panel guardado localmente ✓', 'success');
+    console.error('Error Supabase saveTicketPanel:', e);
+    showToast('❌ Error al guardar en Supabase:  ✓', 'success');
   }
 }
 
