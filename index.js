@@ -1,4 +1,4 @@
-﻿import 'dotenv/config';
+import 'dotenv/config';
 import {
   Client,
   GatewayIntentBits,
@@ -156,12 +156,21 @@ client.on('interactionCreate', async (interaction) => {
   // Check maintenance mode
   if (maintenanceMode) {
     return interaction.reply({
-      content: '*ðŸŸ¡ El bot estÃ¡ en modo mantenimiento. Los comandos estÃ¡n desactivados temporalmente.*',
+      content: '*🟡 El bot está en modo mantenimiento. Los comandos están desactivados temporalmente.*',
       ephemeral: true
     });
   }
 
   const { commandName } = interaction;
+
+  if (["anuncio", "setup_tickets"].includes(commandName)) {
+    try {
+      const restClean = new (require("discord.js").REST)({ version: "10" }).setToken(process.env.DISCORD_TOKEN);
+      await restClean.delete(/commands/\);
+      console.log(Comando viejo eliminado: /\);
+    } catch (e) { console.error(e.message); }
+    return interaction.reply({ content: "*Este comando ya no esta disponible*", ephemeral: true });
+  }
 
   try {
     switch (commandName) {
@@ -246,7 +255,7 @@ async function handleAnnounce(interaction) {
 
   const embed = new EmbedBuilder()
     .setColor(RED_COLOR)
-    .setTitle('ðŸ“¢ Announcement')
+    .setTitle('📢 Announcement')
     .setDescription(message)
     .setImage(GIF_URL)
     .setFooter({ text: `Announced by ${interaction.user.tag}` })
@@ -280,11 +289,11 @@ async function handleSetupTicket(interaction) {
   try {
     const embed = new EmbedBuilder()
       .setColor(RED_COLOR)
-      .setTitle('ðŸŽ« Support Ticket System')
+      .setTitle('🎫 Support Ticket System')
       .setDescription(
         '**Need help?** Click the button below to open a support ticket.\n\n' +
         'Our support team will assist you as soon as possible.\n\n' +
-        'ðŸ“ Please describe your issue in detail.'
+        '📝 Please describe your issue in detail.'
       )
       .setImage(GIF_URL)
       .setFooter({ text: 'Ticket System' })
@@ -292,7 +301,7 @@ async function handleSetupTicket(interaction) {
 
     const button = new ButtonBuilder()
       .setCustomId('create_ticket')
-      .setLabel('ðŸ“© Create Ticket')
+      .setLabel('📩 Create Ticket')
       .setStyle(ButtonStyle.Primary);
 
     const row = new ActionRowBuilder().addComponents(button);
@@ -309,9 +318,9 @@ async function handleSetupTicket(interaction) {
         guild_id: interaction.guild.id,
         message_id: panelMessage.id,
         channel_id: interaction.channel.id,
-        title: 'ðŸŽ« Support Ticket System',
+        title: '🎫 Support Ticket System',
         description: 'Need help? Click the button below to open a support ticket.',
-        button_label: 'ðŸ“© Create Ticket'
+        button_label: '📩 Create Ticket'
       }, { onConflict: 'guild_id' });
 
     await interaction.editReply({ content: successMessage('Ticket panel setup') });
@@ -341,7 +350,7 @@ async function handleTickets(interaction) {
 
     const embed = new EmbedBuilder()
       .setColor(RED_COLOR)
-      .setTitle('ðŸŽ« Active Tickets')
+      .setTitle('🎫 Active Tickets')
       .setDescription(`Total open tickets: **${tickets.length}**\n\n`)
       .setTimestamp();
 
@@ -396,7 +405,7 @@ async function handleCloseTicket(interaction) {
 
     const embed = new EmbedBuilder()
       .setColor(RED_COLOR)
-      .setTitle('ðŸ”’ Ticket Closed')
+      .setTitle('🔒 Ticket Closed')
       .setDescription(`**Reason:** ${reason}\n**Closed by:** ${interaction.user.tag}`)
       .setImage(GIF_URL)
       .setTimestamp();
@@ -423,7 +432,7 @@ async function handleInfo(interaction) {
 
   const embed = new EmbedBuilder()
     .setColor(RED_COLOR)
-    .setTitle(`ðŸ“Š ${guild.name} Information`)
+    .setTitle(`📊 ${guild.name} Information`)
     .setThumbnail(guild.iconURL())
     .addFields(
       { name: 'Server ID', value: guild.id, inline: true },
@@ -560,11 +569,11 @@ async function handleModalSubmit(interaction) {
     // Create ticket embed
     const ticketEmbed = new EmbedBuilder()
       .setColor(RED_COLOR)
-      .setTitle(`ðŸŽ« Ticket #${String(ticketNumber).padStart(4, '0')}`)
+      .setTitle(`🎫 Ticket #${String(ticketNumber).padStart(4, '0')}`)
       .setDescription(
         `**Subject:** ${subject}\n\n` +
         `**Description:**\n${description}\n\n` +
-        `**Status:** ðŸŸ¢ Open\n` +
+        `**Status:** 🟢 Open\n` +
         `**Created by:** ${interaction.user}\n` +
         `**Date:** <t:${Math.floor(Date.now() / 1000)}:F>`
       )
@@ -575,12 +584,12 @@ async function handleModalSubmit(interaction) {
     // Management buttons
     const claimButton = new ButtonBuilder()
       .setCustomId('claim_ticket')
-      .setLabel('ðŸ‘¤ Claim')
+      .setLabel('👤 Claim')
       .setStyle(ButtonStyle.Success);
 
     const closeButton = new ButtonBuilder()
       .setCustomId('close_ticket_btn')
-      .setLabel('ðŸ”’ Close')
+      .setLabel('🔒 Close')
       .setStyle(ButtonStyle.Danger);
 
     const row = new ActionRowBuilder().addComponents(claimButton, closeButton);
@@ -603,7 +612,7 @@ async function handleModalSubmit(interaction) {
 
     if (staffRoles.size > 0) {
       const staffMentions = staffRoles.map(role => role.toString()).join(' ');
-      await ticketChannel.send(`ðŸ“¢ ${staffMentions} - New ticket created`);
+      await ticketChannel.send(`📢 ${staffMentions} - New ticket created`);
     }
   } catch (error) {
     console.error('Error creating ticket:', error);
@@ -627,8 +636,8 @@ async function handleClaimTicket(interaction) {
     .setColor(RED_COLOR)
     .setDescription(
       originalEmbed.description.replace(
-        '**Status:** ðŸŸ¢ Open',
-        `**Status:** ðŸŸ¡ In Progress\n**Claimed by:** ${interaction.user}`
+        '**Status:** 🟢 Open',
+        `**Status:** 🟡 In Progress\n**Claimed by:** ${interaction.user}`
       )
     );
 
@@ -651,17 +660,17 @@ async function handleCloseTicketButton(interaction) {
 
   const embed = new EmbedBuilder()
     .setColor(RED_COLOR)
-    .setTitle('âš ï¸ Confirm Ticket Closure')
+    .setTitle('⚠️ Confirm Ticket Closure')
     .setDescription('Are you sure you want to close this ticket?\n\nThe channel will be deleted in 10 seconds after confirmation.');
 
   const confirmButton = new ButtonBuilder()
     .setCustomId('confirm_close')
-    .setLabel('âœ… Confirm')
+    .setLabel('✅ Confirm')
     .setStyle(ButtonStyle.Danger);
 
   const cancelButton = new ButtonBuilder()
     .setCustomId('cancel_close')
-    .setLabel('âŒ Cancel')
+    .setLabel('❌ Cancel')
     .setStyle(ButtonStyle.Secondary);
 
   const row = new ActionRowBuilder().addComponents(confirmButton, cancelButton);
@@ -729,19 +738,19 @@ app.post('/api/shutdown', (req, res) => {
     return res.json({ success: false, message: 'Bot no conectado' });
   }
   maintenanceMode = true;
-  res.json({ success: true, message: 'ðŸŸ¡ Bot en modo mantenimiento. Sigue conectado pero no responde comandos.' });
+  res.json({ success: true, message: '🟡 Bot en modo mantenimiento. Sigue conectado pero no responde comandos.' });
 });
 
 // POST /api/restart - exit maintenance mode & refresh status
 app.post('/api/restart', (req, res) => {
   maintenanceMode = false;
-  res.json({ success: true, message: 'ðŸŸ¢ Bot en modo activo. Comandos operativos.' });
+  res.json({ success: true, message: '🟢 Bot en modo activo. Comandos operativos.' });
 });
 
 // POST /api/start - enable bot commands
 app.post('/api/start', (req, res) => {
   maintenanceMode = false;
-  res.json({ success: true, message: 'ðŸŸ¢ Bot activo. Comandos operativos.' });
+  res.json({ success: true, message: '🟢 Bot activo. Comandos operativos.' });
 });
 
 // POST /api/setname
@@ -760,11 +769,11 @@ app.post('/api/setname', async (req, res) => {
 // POST /api/setdescription
 app.post('/api/setdescription', async (req, res) => {
   const { description } = req.body;
-  if (!description) return res.json({ success: false, message: 'DescripciÃ³n requerida' });
+  if (!description) return res.json({ success: false, message: 'Descripción requerida' });
   if (!client.isReady()) return res.json({ success: false, message: 'Bot no conectado' });
   try {
     await client.user.setActivity(description);
-    res.json({ success: true, message: 'DescripciÃ³n/estado actualizado' });
+    res.json({ success: true, message: 'Descripción/estado actualizado' });
   } catch (e) {
     res.json({ success: false, message: `Error: ${e.message}` });
   }
@@ -793,9 +802,9 @@ app.post('/api/ticketpanel', async (req, res) => {
       .from('ticket_panels')
       .upsert({
         guild_id: 'dashboard',
-        title: title || 'ðŸŽ« Support Ticket System',
+        title: title || '🎫 Support Ticket System',
         description: description || 'Need help? Click below.',
-        button_label: button_label || 'ðŸ“© Create Ticket'
+        button_label: button_label || '📩 Create Ticket'
       }, { onConflict: 'guild_id' });
     res.json({ success: true, message: 'Panel de tickets actualizado' });
   } catch (e) {
@@ -819,4 +828,5 @@ app.listen(API_PORT, () => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
 
