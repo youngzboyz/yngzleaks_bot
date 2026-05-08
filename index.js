@@ -137,6 +137,14 @@ client.on('interactionCreate', async (interaction) => {
     });
   }
 
+  // Check maintenance mode
+  if (maintenanceMode) {
+    return interaction.reply({
+      content: '*🟡 El bot está en modo mantenimiento. Los comandos están desactivados temporalmente.*',
+      ephemeral: true
+    });
+  }
+
   const { commandName } = interaction;
 
   try {
@@ -667,12 +675,12 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'dashboard')));
 
 let startTime = Date.now();
-let manuallyOff = false;
+let maintenanceMode = false;
 
 // GET /api/status
 app.get('/api/status', (req, res) => {
   if (!client.isReady()) {
-    return res.json({ online: false, manuallyOff });
+    return res.json({ online: false });
   }
 
   let totalUsers = 0;
@@ -687,6 +695,7 @@ app.get('/api/status', (req, res) => {
 
   res.json({
     online: true,
+    maintenance: maintenanceMode,
     username: client.user.username,
     discriminator: client.user.discriminator,
     id: client.user.id,
@@ -698,44 +707,25 @@ app.get('/api/status', (req, res) => {
   });
 });
 
-// POST /api/shutdown - ONLY disconnects bot, keeps web alive!
+// POST /api/shutdown - maintenance mode (bot ignores commands but stays connected)
 app.post('/api/shutdown', (req, res) => {
   if (!client.isReady()) {
-    return res.json({ success: false, message: 'Bot ya está apagado' });
+    return res.json({ success: false, message: 'Bot no conectado' });
   }
-  res.json({ success: true, message: 'Bot desconectado de Discord. La web sigue activa.' });
-  manuallyOff = true;
-  client.destroy();
+  maintenanceMode = true;
+  res.json({ success: true, message: '🟡 Bot en modo mantenimiento. Sigue conectado pero no responde comandos.' });
 });
 
-// POST /api/restart - reconnects bot
-app.post('/api/restart', async (req, res) => {
-  if (client.isReady()) {
-    client.destroy();
-    // Small delay before reconnecting
-    await new Promise(r => setTimeout(r, 1500));
-  }
-  manuallyOff = false;
-  try {
-    await client.login(process.env.DISCORD_TOKEN);
-    res.json({ success: true, message: 'Bot reiniciado correctamente' });
-  } catch (e) {
-    res.json({ success: false, message: `Error al reconectar: ${e.message}` });
-  }
+// POST /api/restart - exit maintenance mode & refresh status
+app.post('/api/restart', (req, res) => {
+  maintenanceMode = false;
+  res.json({ success: true, message: '🟢 Bot en modo activo. Comandos operativos.' });
 });
 
-// POST /api/start - connects bot
-app.post('/api/start', async (req, res) => {
-  if (client.isReady()) {
-    return res.json({ success: false, message: 'El bot ya está en línea' });
-  }
-  manuallyOff = false;
-  try {
-    await client.login(process.env.DISCORD_TOKEN);
-    res.json({ success: true, message: 'Bot iniciado correctamente' });
-  } catch (e) {
-    res.json({ success: false, message: `Error al iniciar: ${e.message}` });
-  }
+// POST /api/start - enable bot commands
+app.post('/api/start', (req, res) => {
+  maintenanceMode = false;
+  res.json({ success: true, message: '🟢 Bot activo. Comandos operativos.' });
 });
 
 // POST /api/setname

@@ -442,11 +442,19 @@ async function fetchBotStatus() {
     const label = document.getElementById('statusLabel');
 
     if (data.online) {
-      indicator.style.background = '#44ff88';
-      indicator.style.boxShadow = '0 0 12px #44ff88';
-      text.textContent = '🟢 En línea';
-      text.style.color = '#44ff88';
-      detail.textContent = `Bot: ${data.username || 'Desconocido'} — ${data.guilds || 0} servidores`;
+      if (data.maintenance) {
+        indicator.style.background = '#ffaa00';
+        indicator.style.boxShadow = '0 0 12px #ffaa00';
+        text.textContent = '🟡 Mantenimiento';
+        text.style.color = '#ffaa00';
+        detail.textContent = `Bot conectado pero en mantenimiento. Comandos desactivados.`;
+      } else {
+        indicator.style.background = '#44ff88';
+        indicator.style.boxShadow = '0 0 12px #44ff88';
+        text.textContent = '🟢 En línea';
+        text.style.color = '#44ff88';
+        detail.textContent = `Bot: ${data.username || 'Desconocido'} — ${data.guilds || 0} servidores`;
+      }
       status.className = 'status-dot online';
       label.textContent = `🟢 ${data.username || 'Bot'} conectado`;
 
@@ -456,10 +464,22 @@ async function fetchBotStatus() {
       document.getElementById('statUptime').textContent = data.uptime || '—';
       document.getElementById('statLatency').textContent = data.latency ? `${data.latency}ms` : '—';
 
-      document.getElementById('btnStartBot').disabled = true;
-      document.getElementById('btnStartBot').style.opacity = '0.5';
+      document.getElementById('btnStartBot').disabled = false;
+      document.getElementById('btnStartBot').style.opacity = '1';
       document.getElementById('btnStopBot').disabled = false;
       document.getElementById('btnStopBot').style.opacity = '1';
+      
+      if (data.maintenance) {
+        document.getElementById('btnStartBot').textContent = '▶ Activar';
+        document.getElementById('btnStopBot').textContent = '⏹ En Mantenimiento';
+        document.getElementById('btnStopBot').style.background = 'rgba(180,120,0,0.3)';
+      } else {
+        document.getElementById('btnStartBot').textContent = '▶ Activo';
+        document.getElementById('btnStartBot').disabled = true;
+        document.getElementById('btnStartBot').style.opacity = '0.5';
+        document.getElementById('btnStopBot').textContent = '⏹ Poner en Mantenimiento';
+        document.getElementById('btnStopBot').style.background = '';
+      }
     } else {
       indicator.style.background = '#ff4444';
       indicator.style.boxShadow = '0 0 12px #ff4444';
@@ -468,8 +488,8 @@ async function fetchBotStatus() {
       detail.textContent = 'El bot no está respondiendo';
       status.className = 'status-dot offline';
       label.textContent = 'Desconectado';
-      document.getElementById('btnStartBot').disabled = false;
-      document.getElementById('btnStartBot').style.opacity = '1';
+      document.getElementById('btnStartBot').disabled = true;
+      document.getElementById('btnStartBot').style.opacity = '0.5';
       document.getElementById('btnStopBot').disabled = true;
       document.getElementById('btnStopBot').style.opacity = '0.5';
     }
