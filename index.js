@@ -53,9 +53,21 @@ const commands = [
         .setDescription('Channel to send the announcement')
         .setRequired(true))
     .addStringOption(option =>
+      option.setName('title')
+        .setDescription('Title of the announcement')
+        .setRequired(true))
+    .addStringOption(option =>
       option.setName('message')
         .setDescription('Announcement message')
-        .setRequired(true)),
+        .setRequired(true))
+    .addStringOption(option =>
+      option.setName('color')
+        .setDescription('Color hex (e.g., #FF0000 for red)')
+        .setRequired(false))
+    .addStringOption(option =>
+      option.setName('image')
+        .setDescription('Image URL to include')
+        .setRequired(false)),
 
   new SlashCommandBuilder()
     .setName('clear')
@@ -86,6 +98,14 @@ const commands = [
   new SlashCommandBuilder()
     .setName('info')
     .setDescription('Show server information'),
+
+  new SlashCommandBuilder()
+    .setName('stealemojis')
+    .setDescription('Steal emojis from another server')
+    .addStringOption(option =>
+      option.setName('emojis')
+        .setDescription('Emojis to steal (separated by space)'
+        .setRequired(true)),
 ].map(command => command.toJSON());
 
 // Register slash commands
@@ -184,6 +204,9 @@ client.on('interactionCreate', async (interaction) => {
       case 'info':
         await handleInfo(interaction);
         break;
+      case 'stealemojis':
+        await handleStealEmojis(interaction);
+        break;
     }
   } catch (error) {
     console.error(`Error executing ${commandName}:`, error);
@@ -242,22 +265,31 @@ client.on('messageCreate', async (message) => {
 
 // ANNOUNCE COMMAND
 async function handleAnnounce(interaction) {
-  const channel = interaction.options.getChannel('channel');
-  const message = interaction.options.getString('message');
+  const channel = interaction.options.getChannel("channel");
+  const title = interaction.options.getString("title");
+  const message = interaction.options.getString("message");
+  const colorStr = interaction.options.getString("color") || "#FF0000";
+  const imageUrl = interaction.options.getString("image") || null;
+
+  let color = 0xFF0000;
+  try {
+    if (colorStr.startsWith("#")) color = parseInt(colorStr.slice(1), 16);
+    else if (!isNaN(parseInt(colorStr))) color = parseInt(colorStr);
+  } catch (e) {}
 
   const embed = new EmbedBuilder()
-    .setColor(RED_COLOR)
-    .setTitle('📢 Announcement')
+    .setColor(color)
+    .setTitle(title)
     .setDescription(message)
-    .setImage(GIF_URL)
-    .setFooter({ text: `Announced by ${interaction.user.tag}` })
+    .setFooter({ text: Announced by  })
     .setTimestamp();
 
-  await channel.send({ embeds: [embed] });
-  await interaction.reply({ content: successMessage('Announcement'), ephemeral: true });
-}
+  if (imageUrl) embed.setImage(imageUrl);
+  else embed.setImage(GIF_URL);
 
-// CLEAR COMMAND
+  await channel.send({ embeds: [embed] });
+  await interaction.reply({ content: successMessage("Announcement"), ephemeral: true });
+}// CLEAR COMMAND
 async function handleClear(interaction) {
   const amount = interaction.options.getInteger('amount');
 
@@ -440,7 +472,52 @@ async function handleInfo(interaction) {
   await interaction.reply({ embeds: [embed] });
 }
 
-// BUTTON HANDLER - Create Ticket
+
+
+// STEAL EMOJIS COMMAND
+async function handleStealEmojis(interaction) {
+  const emojisStr = interaction.options.getString("emojis");
+
+  await interaction.deferReply({ ephemeral: true });
+
+  try {
+    const emojiRegex = /<(?<animated>a)?:(?<name>[a-zA-Z0-9_]+):(?<id>\d+)>/g;
+    let match;
+    let added = 0;
+    let errors = 0;
+
+    while ((match = emojiRegex.exec(emojisStr)) !== null) {
+      const name = match.groups.name;
+      const id = match.groups.id;
+      const animated = match.groups.animated === "a";
+      const url = animated
+        ? https://cdn.discordapp.com/emojis/.gif
+        : https://cdn.discordapp.com/emojis/.png;
+
+      try {
+        await interaction.guild.emojis.create({
+          attachment: url,
+          name: name
+        });
+        added++;
+      } catch (e) {
+        console.error(Error adding emoji : );
+        errors++;
+      }
+    }
+
+    if (added === 0 && errors === 0) {
+      return interaction.editReply("*No se encontraron emojis. Copia emojis de otro servidor y pegalos aqui.*");
+    }
+
+    let reply = ✅ Se anadieron  emoji(s) al servidor.;
+    if (errors > 0) reply += \n❌  emoji(s) fallaron (limite alcanzado o sin permisos).;
+    await interaction.editReply(reply);
+  } catch (e) {
+    console.error("Error in stealemojis:", e);
+    await interaction.editReply("*Error al procesar emojis.*");
+  }
+}// BUTTON HANDLER - Create Ticket
 async function handleButtonInteraction(interaction) {
   const { customId } = interaction;
 
@@ -820,6 +897,9 @@ app.listen(API_PORT, () => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
+
+
 
 
 
