@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Youngz Leaks - Panel de Control</title>
+  <link rel="icon" type="image/jpeg" href="logo.jpg"/>
+  <link rel="shortcut icon" type="image/jpeg" href="logo.jpg"/>
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Exo+2:wght@300;400;600;700&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+  <!-- PASSWORD PROTECTION OVERLAY -->
+  <div id="passwordOverlay" style="position:fixed;inset:0;z-index:99999;background:#060101;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:30px;">
+    <div style="text-align:center;">
+      <div style="font-size:4rem;margin-bottom:10px;">🤖</div>
+      <h1 style="font-family:'Rajdhani',sans-serif;font-size:2.2rem;font-weight:700;background:linear-gradient(90deg,#ff5555,#cc0000,#880000);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;">Youngz Leaks Panel</h1>
+      <p style="color:#9a7070;font-size:.9rem;margin-top:8px;">Acceso restringido — Introduce la contraseña</p>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px;width:320px;max-width:90%;">
+      <input type="password" id="passwordInput" placeholder="Contraseña" style="width:100%;background:rgba(16,3,3,0.9);border:1px solid rgba(180,0,0,0.3);border-radius:10px;padding:14px 18px;color:#f0e0e0;font-family:'Exo 2',sans-serif;font-size:1rem;outline:none;text-align:center;transition:border-color .2s;" onfocus="this.style.borderColor='#cc0000'" onblur="this.style.borderColor='rgba(180,0,0,0.3)'">
+      <button onclick="checkPassword()" style="width:100%;padding:14px;background:linear-gradient(135deg,#cc0000,#7a0000);border:none;border-radius:10px;color:#fff;font-family:'Exo 2',sans-serif;font-size:1rem;font-weight:600;cursor:pointer;transition:all .2s;" onmouseover="this.style.background='linear-gradient(135deg,#ee1111,#aa0000)'" onmouseout="this.style.background='linear-gradient(135deg,#cc0000,#7a0000)'">Acceder</button>
+      <p id="passwordError" style="color:#ff4444;font-size:.85rem;text-align:center;display:none;">❌ Contraseña incorrecta</p>
+    </div>
+  </div>
+
+  <script>
+    function checkPassword() {
+      const input = document.getElementById('passwordInput');
+      const error = document.getElementById('passwordError');
+      if (input.value === 'botyngzleaks') {
+        document.getElementById('passwordOverlay').style.display = 'none';
+        sessionStorage.setItem('botAuth', 'true');
+      } else {
+        error.style.display = 'block';
+        input.style.borderColor = '#ff4444';
+        input.value = '';
+        setTimeout(() => {
+          error.style.display = 'none';
+          input.style.borderColor = 'rgba(180,0,0,0.3)';
+        }, 2500);
+      }
+    }
+    document.getElementById('passwordInput').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') checkPassword();
+    });
+    // Auto-login if already authenticated in this session
+    if (sessionStorage.getItem('botAuth') === 'true') {
+      document.getElementById('passwordOverlay').style.display = 'none';
+    }
+  </script>
+
+  <canvas id="starCanvas"></canvas>
+
+  <header class="header">
+    <div class="header-left" style="flex-direction:row;align-items:center;gap:12px;">
+      <img src="logo.jpg" alt="Youngz Leaks" style="width:42px;height:42px;border-radius:50%;object-fit:cover;border:2px solid rgba(180,0,0,0.3);">
+      <div style="display:flex;flex-direction:column;gap:2px;">
+        <h1 class="logo">Youngz Leaks</h1>
+        <span class="logo-sub">Panel de Control — Bot de Discord</span>
+      </div>
+    </div>
+    <div class="header-right">
+      <span id="statusDot" class="status-dot offline" title="Estado del bot"></span>
+      <span id="statusLabel" class="status-label">Desconectado</span>
+    </div>
+  </header>
+
+  <div class="layout">
+    <nav class="sidebar">
+      <div class="sidebar-title">Panel</div>
+      <ul class="nav-list">
+        <li class="nav-item active" data-section="dashboard">🏠 Dashboard</li>
+        <li class="nav-item" data-section="comandos">⚡ Comandos</li>
+        <li class="nav-item" data-section="tickets">🎫 Tickets</li>
+        <li class="nav-item" data-section="banners">🖼️ Banners</li>
+        <li class="nav-item" data-section="moderacion">🛡️ Moderación</li>
+        <li class="nav-item" data-section="servidores">🌐 Servidores</li>
+        <li class="nav-item" data-section="logs">📋 Logs</li>
+        <li class="nav-item" data-section="status">🔌 Status del Bot</li>
+        <li class="nav-item" data-section="configuracion">⚙️ Configuración</li>
+      </ul>
+    </nav>
+
+    <main class="main">
+
+      <!-- DASHBOARD -->
+      <section id="dashboard" class="section active">
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon">🌐</div>
+            <div class="stat-label">Servidores</div>
+            <div class="stat-value" id="statServidores">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">👥</div>
+            <div class="stat-label">Usuarios</div>
+            <div class="stat-value" id="statUsuarios">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">🎫</div>
+            <div class="stat-label">Tickets abiertos</div>
+            <div class="stat-value" id="statTickets">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">⚡</div>
+            <div class="stat-label">Comandos activos</div>
+            <div class="stat-value" id="statComandos">6</div>
+          </div>
+        </div>
+
+        <div class="banner-hero">
+          <img src="https://cdn-longterm.mee6.xyz/plugins/welcome/images/1014210083955163197/da9da3b39a05bc51b1d3bd75b6e4ec40da3b7a81c43e3263a996c2201ba192aa.gif" alt="Banner" class="hero-gif"/>
+          <div class="hero-overlay">
+            <div class="hero-title">Discord Bot Panel</div>
+            <div class="hero-sub">Gestiona tu servidor desde aquí</div>
+          </div>
+        </div>
+
+        <div class="two-col">
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h2>Comandos del Bot</h2>
+                <p class="card-sub">Comandos slash disponibles.</p>
+              </div>
+            </div>
+            <div class="cmd-list" id="dashCmdList"></div>
+          </div>
+          <div class="card">
+            <h2>Tickets Recientes</h2>
+            <div id="dashTickets" class="recent-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- COMANDOS -->
+      <section id="comandos" class="section">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h2>⚡ Comandos del Bot</h2>
+              <p class="card-sub">Comandos slash registrados en Discord.</p>
+            </div>
+          </div>
+          <div class="cmd-list" id="cmdListFull"></div>
+        </div>
+      </section>
+
+      <!-- TICKETS -->
+      <section id="tickets" class="section">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h2>🎫 Panel de Tickets</h2>
+              <p class="card-sub">Configura el sistema de tickets del servidor.</p>
+            </div>
+            <button class="btn-primary" onclick="loadTickets()">🔄 Actualizar</button>
+          </div>
+          <div id="ticketPanelConfig" class="ticket-config-box">
+            <div class="form-group">
+              <label>Título del panel</label>
+              <input type="text" id="ticketTitle" value="🎫 Support Ticket System" />
+            </div>
+            <div class="form-group">
+              <label>Descripción / Mensaje</label>
+              <textarea id="ticketDesc" rows="3">Need help? Click the button below to open a support ticket.</textarea>
+            </div>
+            <div class="form-group">
+              <label>Etiqueta del botón</label>
+              <input type="text" id="ticketBtn" value="📩 Create Ticket" />
+            </div>
+            <button class="btn-primary" onclick="saveTicketPanel()">💾 Guardar Panel</button>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Tickets Activos</h2>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr><th>#</th><th>Asunto</th><th>Canal</th><th>Estado</th><th>Fecha</th><th>Acciones</th></tr>
+              </thead>
+              <tbody id="ticketRows"></tbody>
+            </table>
+          </div>
+          <div id="ticketEmpty" class="empty-state" style="display:none">🎫 No hay tickets activos</div>
+        </div>
+      </section>
+
+      <!-- BANNERS -->
+      <section id="banners" class="section">
+        <div class="card">
+          <h2>🖼️ Banner del Bot</h2>
+          <p class="card-sub">GIF de bienvenida y banner activo.</p>
+          <div class="banner-preview-big">
+            <img id="activeBanner" src="https://cdn-longterm.mee6.xyz/plugins/welcome/images/1014210083955163197/da9da3b39a05bc51b1d3bd75b6e4ec40da3b7a81c43e3263a996c2201ba192aa.gif" alt="Banner activo"/>
+            <div class="banner-label">Banner activo — GIF animado</div>
+          </div>
+          <div class="form-group" style="margin-top:20px">
+            <label>URL del banner (GIF/PNG/JPG)</label>
+            <div class="input-row">
+              <input type="text" id="bannerUrl" value="https://cdn-longterm.mee6.xyz/plugins/welcome/images/1014210083955163197/da9da3b39a05bc51b1d3bd75b6e4ec40da3b7a81c43e3263a996c2201ba192aa.gif" />
+              <button class="btn-primary" onclick="previewBanner()">👁️ Preview</button>
+            </div>
+          </div>
+          <button class="btn-primary" onclick="saveBanner()">💾 Guardar Banner</button>
+        </div>
+      </section>
+
+      <!-- MODERACION -->
+      <section id="moderacion" class="section">
+        <div class="card">
+          <h2>🛡️ Acciones de Moderación</h2>
+          <p class="card-sub">Panel de control de moderación. Estas acciones se registran en Supabase.</p>
+          <div class="mod-grid">
+            <div class="mod-card">
+              <div class="mod-icon">🔨</div>
+              <h3>Ban</h3>
+              <div class="form-group"><input type="text" id="banUser" placeholder="User ID o @usuario"/></div>
+              <div class="form-group"><input type="text" id="banReason" placeholder="Razón (opcional)"/></div>
+              <button class="btn-danger" onclick="logMod('ban')">Ejecutar Ban</button>
+            </div>
+            <div class="mod-card">
+              <div class="mod-icon">👢</div>
+              <h3>Kick</h3>
+              <div class="form-group"><input type="text" id="kickUser" placeholder="User ID o @usuario"/></div>
+              <div class="form-group"><input type="text" id="kickReason" placeholder="Razón (opcional)"/></div>
+              <button class="btn-danger" onclick="logMod('kick')">Ejecutar Kick</button>
+            </div>
+            <div class="mod-card">
+              <div class="mod-icon">🔇</div>
+              <h3>Mute</h3>
+              <div class="form-group"><input type="text" id="muteUser" placeholder="User ID o @usuario"/></div>
+              <div class="form-group"><input type="number" id="muteMin" placeholder="Minutos"/></div>
+              <div class="form-group"><input type="text" id="muteReason" placeholder="Razón"/></div>
+              <button class="btn-warning" onclick="logMod('mute')">Ejecutar Mute</button>
+            </div>
+            <div class="mod-card">
+              <div class="mod-icon">⚠️</div>
+              <h3>Warn</h3>
+              <div class="form-group"><input type="text" id="warnUser" placeholder="User ID o @usuario"/></div>
+              <div class="form-group"><input type="text" id="warnReason" placeholder="Razón"/></div>
+              <button class="btn-warning" onclick="logMod('warn')">Enviar Warn</button>
+            </div>
+            <div class="mod-card">
+              <div class="mod-icon">🧹</div>
+              <h3>Clear</h3>
+              <div class="form-group"><input type="number" id="clearAmt" placeholder="Cantidad (1-100)" min="1" max="100"/></div>
+              <div class="form-group"><input type="text" id="clearCh" placeholder="Canal ID"/></div>
+              <button class="btn-primary" onclick="logMod('clear')">Registrar Clear</button>
+            </div>
+            <div class="mod-card">
+              <div class="mod-icon">📢</div>
+              <h3>Anuncio</h3>
+              <div class="form-group"><input type="text" id="annTitle" placeholder="Título"/></div>
+              <div class="form-group"><textarea id="annMsg" rows="2" placeholder="Mensaje"></textarea></div>
+              <button class="btn-primary" onclick="logMod('announce')">Enviar</button>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <h2>📋 Log de Moderación</h2>
+            <button class="btn-sm" onclick="loadModLogs()">🔄 Cargar</button>
+          </div>
+          <div id="modLogList" class="log-scroll"></div>
+        </div>
+      </section>
+
+      <!-- SERVIDORES -->
+      <section id="servidores" class="section">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h2>🌐 Servidores</h2>
+              <p class="card-sub">Servidores donde el bot ha operado.</p>
+            </div>
+          </div>
+          <div id="serverGrid" class="server-grid">
+            <div class="server-card">
+              <div class="server-icon">🤖</div>
+              <div class="server-name">Tu servidor</div>
+              <div class="server-info">Configura el bot en Discord y aparecerá aquí</div>
+              <span class="badge badge-open">Activo</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- LOGS -->
+      <section id="logs" class="section">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h2>📋 Logs del Sistema</h2>
+              <p class="card-sub">Historial de moderación desde Supabase.</p>
+            </div>
+            <div style="display:flex;gap:10px">
+              <button class="btn-sm" onclick="loadAllLogs()">🔄 Actualizar</button>
+              <button class="btn-danger" onclick="clearLocalLogs()">🗑️ Limpiar vista</button>
+            </div>
+          </div>
+          <div id="allLogsContainer" class="log-scroll big"></div>
+        </div>
+      </section>
+
+      <!-- STATUS DEL BOT -->
+      <section id="status" class="section">
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h2>🔌 Estado del Bot</h2>
+              <p class="card-sub">Controla el bot de Discord en tiempo real.</p>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:16px;padding:18px;background:rgba(16,3,3,0.8);border:1px solid var(--border);border-radius:12px;margin-bottom:20px;">
+            <div id="botStatusIndicator" style="width:16px;height:16px;border-radius:50%;background:#ff4444;box-shadow:0 0 12px #ff4444;"></div>
+            <div>
+              <div id="botStatusText" style="font-family:'Rajdhani',sans-serif;font-size:1.2rem;font-weight:700;color:#ff6666;">Desconectado</div>
+              <div id="botStatusDetail" style="font-size:.8rem;color:var(--text-dim);">El bot no está respondiendo</div>
+            </div>
+            <div style="margin-left:auto;display:flex;gap:10px;">
+              <button id="btnStartBot" class="btn-primary" onclick="controlBot('start')" style="background:linear-gradient(135deg,#00aa44,#007730);padding:10px 22px;">▶ Iniciar</button>
+              <button id="btnStopBot" class="btn-danger" onclick="controlBot('shutdown')" style="padding:10px 22px;">⏹ Apagar</button>
+              <button class="btn-sm" onclick="controlBot('restart')" style="padding:10px 22px;">🔄 Reiniciar</button>
+            </div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+            <div class="mod-card">
+              <h3>📝 Cambiar Nombre</h3>
+              <div class="form-group"><input type="text" id="botNewName" placeholder="Nuevo nombre del bot"/></div>
+              <button class="btn-primary" onclick="updateBotName()">Guardar Nombre</button>
+            </div>
+            <div class="mod-card">
+              <h3>📄 Cambiar Descripción</h3>
+              <div class="form-group"><input type="text" id="botNewDesc" placeholder="Nueva descripción / About Me"/></div>
+              <button class="btn-primary" onclick="updateBotDesc()">Guardar Descripción</button>
+            </div>
+            <div class="mod-card">
+              <h3>🖼️ Cambiar Avatar</h3>
+              <div class="form-group"><input type="text" id="botNewAvatar" placeholder="URL de la nueva imagen"/></div>
+              <button class="btn-primary" onclick="updateBotAvatar()">Cambiar Avatar</button>
+            </div>
+            <div class="mod-card">
+              <h3>📊 Estadísticas</h3>
+              <div id="botStats" style="color:var(--text-dim);font-size:.85rem;line-height:1.8;">
+                <div>Servidores: <span id="statGuilds" style="color:#fff;font-weight:600;">—</span></div>
+                <div>Usuarios totales: <span id="statUsers" style="color:#fff;font-weight:600;">—</span></div>
+                <div>Canales: <span id="statChannels" style="color:#fff;font-weight:600;">—</span></div>
+                <div>Uptime: <span id="statUptime" style="color:#fff;font-weight:600;">—</span></div>
+                <div>Latencia: <span id="statLatency" style="color:#fff;font-weight:600;">—</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- CONFIGURACION -->
+      <section id="configuracion" class="section">
+        <div class="card">
+          <h2>⚙️ Configuración del Bot</h2>
+          <p class="card-sub">Variables de entorno y ajustes generales. Los cambios se guardan localmente.</p>
+          <div class="form-group">
+            <label>Supabase URL</label>
+            <input type="text" id="cfgSupaUrl" placeholder="https://xxx.supabase.co"/>
+          </div>
+          <div class="form-group">
+            <label>Supabase Anon Key</label>
+            <div class="input-eye">
+              <input type="password" id="cfgSupaKey" placeholder="••••••••••••••••"/>
+              <button class="eye-btn" onclick="togglePass('cfgSupaKey')">👁️</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Discord Bot Token</label>
+            <div class="input-eye">
+              <input type="password" id="cfgToken" placeholder="••••••••••••••••"/>
+              <button class="eye-btn" onclick="togglePass('cfgToken')">👁️</button>
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Guild ID (Servidor principal)</label>
+            <input type="text" id="cfgGuildId" placeholder="1234567890"/>
+          </div>
+          <div class="form-group">
+            <label>GIF Banner URL</label>
+            <input type="text" id="cfgGif" value="https://cdn-longterm.mee6.xyz/plugins/welcome/images/1014210083955163197/da9da3b39a05bc51b1d3bd75b6e4ec40da3b7a81c43e3263a996c2201ba192aa.gif"/>
+          </div>
+          <div class="toggle-row">
+            <label>Modo mantenimiento</label>
+            <label class="toggle"><input type="checkbox" id="maintenance"/><span class="slider"></span></label>
+          </div>
+          <div class="toggle-row">
+            <label>DM de bienvenida</label>
+            <label class="toggle"><input type="checkbox" id="welcomeDM" checked/><span class="slider"></span></label>
+          </div>
+          <br/>
+          <button class="btn-primary" onclick="saveConfig()">💾 Guardar Configuración</button>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- TOAST -->
+  <div id="toast" class="toast"></div>
+
+  <!-- MODAL CONFIRM -->
+  <div id="confirmModal" class="modal-overlay" style="display:none">
+    <div class="modal">
+      <h3 id="confirmTitle">Confirmar acción</h3>
+      <p id="confirmMsg" style="color:#a08080;margin:12px 0 20px"></p>
+      <div style="display:flex;gap:12px;justify-content:flex-end">
+        <button class="btn-sm" onclick="closeConfirm()">Cancelar</button>
+        <button class="btn-danger" id="confirmBtn">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
