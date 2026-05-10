@@ -13,7 +13,8 @@ import {
   PermissionsBitField,
   SlashCommandBuilder,
   REST,
-  Routes
+  Routes,
+  Collection
 } from 'discord.js';
 
 import express from 'express';
@@ -37,11 +38,20 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.DirectMessages,
   ],
+  partials: ['CHANNEL'], // For DM partials
 });
 
 const GIF_URL = 'https://cdn-longterm.mee6.xyz/plugins/welcome/images/1014210083955163197/da9da3b39a05bc51b1d3bd75b6e4ec40da3b7a81c43e3263a996c2201ba192aa.gif';
 const RED_COLOR = 0xFF0000;
+
+// Track which users are in appeal conversation mode (userId => conversationPartnerId)
+const appealConversations = new Collection();
+// Track banned users' info for appeal: userId => { guildId, reason, moderatorId }
+const bannedUsersInfo = new Collection();
+// Bot owner ID
+const BOT_OWNER_ID = process.env.BOT_OWNER_ID;
 
 // Slash Commands Definition
 const commands = [
@@ -106,6 +116,18 @@ const commands = [
       option.setName('emojis')
         .setDescription('Emojis to steal (separated by space)')
         .setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('warn')
+    .setDescription('Warn a user')
+    .addUserOption(option =>
+      option.setName('user')
+        .setDescription('User to warn')
+        .setRequired(true))
+    .addStringOption(option =>
+      option.setName('reason')
+        .setDescription('Reason for the warning')
+        .setRequired(true)),
 ].map(command => command.toJSON());
 
 // Register slash commands
@@ -150,6 +172,17 @@ function hasAdminPermission(member) {
 // Success message with emoji
 function successMessage(text) {
   return `*:verificado1: ${text} applied correctly*`;
+}
+
+// Get the bot owner ID
+async function getBotOwnerId() {
+  if (BOT_OWNER_ID) return BOT_OWNER_ID;
+  try {
+    const app = await client.application.fetch();
+    return app.owner?.id || null;
+  } catch {
+    return null;
+  }
 }
 
 // SLASH COMMAND HANDLER
@@ -207,6 +240,9 @@ client.on('interactionCreate', async (interaction) => {
       case 'stealemojis':
         await handleStealEmojis(interaction);
         break;
+      case 'warn':
+        await handleWarn(interaction);
+        break;
     }
   } catch (error) {
     console.error(`Error executing ${commandName}:`, error);
@@ -219,9 +255,59 @@ client.on('interactionCreate', async (interaction) => {
   }
 });
 
-// COMMAND: !ban (kept with prefix)
+// Handle ALL messages: !ban commands, DMs, and appeal forwarding
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
+  
+  // Handle ALL DM messages (appeal conversations and new appeals)
+  if (message.channel.type === ChannelType.DM) {
+    // Check if this user is in an active appeal conversation first
+    const conversationPartner = appealConversations.get(message.author.id);
+    
+    if (conversationPartner) {
+      // This is an active appeal conversation - forward the message
+      try {
+        const targetUser = await client.users.fetch(conversationPartner);
+        if (targetUser) {
+          const isBannedUser = message.author.id !== conversationPartner;
+          
+          let forwardEmbed;
+          if (isBannedUser) {
+            // Banned user -> Staff
+            forwardEmbed = new EmbedBuilder()
+              .setColor(RED_COLOR)
+              .setTitle(`📩 Appeal from ${message.author.tag}`)
+              .setDescription(
+                `**Message:**\n${message.content}\n\n` +
+                `*Reply to this message to respond to the user*`
+              )
+              .setTimestamp();
+          } else {
+            // Staff -> Banned user
+            forwardEmbed = new EmbedBuilder()
+              .setColor(0x5865F2)
+              .setTitle(`📨 Staff Response`)
+              .setDescription(message.content)
+              .setFooter({ text: 'Reply to this message to respond' })
+              .setTimestamp();
+          }
+
+          await targetUser.send({ embeds: [forwardEmbed] });
+          await message.react('✅');
+        }
+      } catch (error) {
+        console.error('Error forwarding appeal message:', error);
+        if (conversationPartner !== message.author.id) {
+          await message.reply('*Failed to forward your message. The other user may have closed DMs.*');
+        }
+      }
+      return;
+    }
+
+    // Not an active conversation - check if this is a NEW appeal attempt
+    return handleAppealMessage(message);
+  }
+
   if (!message.content.startsWith('!ban')) return;
 
   if (!hasAdminPermission(message.member)) {
@@ -257,11 +343,212 @@ client.on('messageCreate', async (message) => {
       target_user_id: user.id,
       reason: reason
     });
+
+    // Store ban info in memory for appeal system
+    bannedUsersInfo.set(user.id, {
+      guildId: message.guild.id,
+      guildName: message.guild.name,
+      reason: reason,
+      moderatorId: message.author.id,
+      moderatorTag: message.author.tag,
+      bannedAt: new Date().toISOString()
+    });
+
+    // --- Try to DM the banned user with reason and appeal info ---
+    try {
+      const appealEmbed = new EmbedBuilder()
+        .setColor(RED_COLOR)
+        .setTitle('🔨 You have been banned')
+        .setDescription(
+          `**Server:** ${message.guild.name}\n` +
+          `**Reason:** ${reason}\n` +
+          `**Moderator:** ${message.author.tag}\n\n` +
+          `━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+          `**🔄 Want to appeal your ban?**\n\n` +
+          `You can appeal by simply **replying to this message** in our DMs.\n` +
+          `Explain your situation and we will review it.`
+        )
+        .setImage(GIF_URL)
+        .setTimestamp();
+
+      await user.send({ embeds: [appealEmbed] });
+      console.log(`Ban DM sent to ${user.tag}`);
+    } catch (dmError) {
+      // User has DMs closed, that's okay
+      console.log(`Could not DM ${user.tag} about ban: ${dmError.message}`);
+    }
   } catch (error) {
     console.error('Error banning user:', error);
     message.reply('*Failed to ban user*');
   }
 });
+
+// ====== APPEAL SYSTEM: Handle new ban appeal attempts ======
+// NOTE: Active conversation forwarding is handled directly in the messageCreate listener above.
+// This function only handles NEW appeal attempts from banned users.
+async function handleAppealMessage(message) {
+  // First check in-memory cache (for users banned while bot was running)
+  let banInfo = bannedUsersInfo.get(message.author.id);
+
+  // If not in memory, check the database (for bans from before bot restart)
+  if (!banInfo) {
+    const { data: banLogs } = await supabase
+      .from('moderation_logs')
+      .select('*')
+      .eq('target_user_id', message.author.id)
+      .eq('action', 'ban')
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (banLogs && banLogs.length > 0) {
+      banInfo = {
+        guildId: banLogs[0].guild_id,
+        guildName: 'the server',
+        reason: banLogs[0].reason || 'No reason provided',
+        moderatorId: banLogs[0].moderator_id,
+        moderatorTag: 'a moderator'
+      };
+    }
+  }
+
+  if (!banInfo) {
+    // No ban record found - send generic info
+    const helpEmbed = new EmbedBuilder()
+      .setColor(0x5865F2)
+      .setTitle('🤖 Bot Support')
+      .setDescription(
+        'This bot handles support tickets and moderation.\n\n' +
+        'If you have been banned from a server and want to appeal, ' +
+        'please make sure the ban was issued by this bot.'
+      )
+      .setTimestamp();
+
+    await message.author.send({ embeds: [helpEmbed] });
+    return;
+  }
+
+  // This user IS banned and is now appealing
+  const botOwnerId = await getBotOwnerId();
+  if (!botOwnerId) {
+    console.error('Cannot handle appeal: No BOT_OWNER_ID set');
+    await message.author.send({
+      content: '*Sorry, the appeal system is not configured. Please contact the server administrators directly.*'
+    });
+    return;
+  }
+
+  // Start the appeal conversation - link user to bot owner
+  appealConversations.set(message.author.id, botOwnerId);
+  appealConversations.set(botOwnerId, message.author.id);
+
+  // Notify the bot owner
+  try {
+    const ownerUser = await client.users.fetch(botOwnerId);
+    if (ownerUser) {
+      const appealEmbed = new EmbedBuilder()
+        .setColor(0xFFA500)
+        .setTitle('🔄 New Ban Appeal')
+        .setDescription(
+          `**User:** ${message.author.tag} (${message.author.id})\n` +
+          `**Original Reason:** ${banInfo.reason}\n` +
+          `**Guild:** ${banInfo.guildName}\n\n` +
+          `━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+          `**Appeal Message:**\n${message.content}\n\n` +
+          `━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+          `*Reply to this message to respond directly to ${message.author.tag}*\n` +
+          `*Everything you say will be forwarded to them.*`
+        )
+        .setTimestamp();
+
+      await ownerUser.send({ embeds: [appealEmbed] });
+    }
+  } catch (error) {
+    console.error('Error notifying owner about appeal:', error);
+  }
+
+  // Confirm to the appealing user
+  const confirmationEmbed = new EmbedBuilder()
+    .setColor(0x00FF00)
+    .setTitle('✅ Appeal Submitted')
+    .setDescription(
+      'Your ban appeal has been sent to the server staff.\n\n' +
+      '**How it works:**\n' +
+      '• You are now connected with a moderator through me.\n' +
+      '• **Just send messages here** and they will be forwarded.\n' +
+      '• The moderator\'s replies will appear here too.\n\n' +
+      'Please be patient and respectful.'
+    )
+    .setTimestamp();
+
+  await message.author.send({ embeds: [confirmationEmbed] });
+}
+
+// ====== WARN COMMAND ======
+async function handleWarn(interaction) {
+  const targetUser = interaction.options.getUser('user');
+  const reason = interaction.options.getString('reason');
+
+  await interaction.deferReply({ ephemeral: true });
+
+  try {
+    // Log warning to database
+    await supabase.from('moderation_logs').insert({
+      guild_id: interaction.guild.id,
+      action: 'warn',
+      moderator_id: interaction.user.id,
+      target_user_id: targetUser.id,
+      reason: reason
+    });
+
+    // Get warning count for this user
+    const { data: warns } = await supabase
+      .from('moderation_logs')
+      .select('*')
+      .eq('guild_id', interaction.guild.id)
+      .eq('target_user_id', targetUser.id)
+      .eq('action', 'warn');
+
+    const warnCount = warns ? warns.length : 1;
+
+    // Send embed to channel
+    const warnEmbed = new EmbedBuilder()
+      .setColor(RED_COLOR)
+      .setTitle('⚠️ User Warned')
+      .setDescription(
+        `**User:** ${targetUser.tag}\n` +
+        `**Reason:** ${reason}\n` +
+        `**Moderator:** ${interaction.user.tag}\n` +
+        `**Total Warnings:** ${warnCount}`
+      )
+      .setTimestamp();
+
+    await interaction.channel.send({ embeds: [warnEmbed] });
+
+    // Try to DM the warned user
+    try {
+      const dmEmbed = new EmbedBuilder()
+        .setColor(0xFFA500)
+        .setTitle('⚠️ You have been warned')
+        .setDescription(
+          `**Server:** ${interaction.guild.name}\n` +
+          `**Reason:** ${reason}\n` +
+          `**Moderator:** ${interaction.user.tag}\n\n` +
+          `Please follow the server rules to avoid further action.`
+        )
+        .setTimestamp();
+
+      await targetUser.send({ embeds: [dmEmbed] });
+    } catch (dmError) {
+      // User has DMs closed, that's fine
+      console.log(`Could not DM ${targetUser.tag} about warn: ${dmError.message}`);
+    }
+
+    await interaction.editReply({ content: successMessage(`Warn on ${targetUser.tag} (${warnCount} total warns)`) });
+  } catch (error) {
+    console.error('Error warning user:', error);
+    await interaction.editReply({ content: '*Failed to warn user*' });
+  }
+}
 
 // ANNOUNCE COMMAND
 async function handleAnnounce(interaction) {
@@ -289,7 +576,9 @@ async function handleAnnounce(interaction) {
 
   await channel.send({ embeds: [embed] });
   await interaction.reply({ content: successMessage("Announcement"), ephemeral: true });
-}// CLEAR COMMAND
+}
+
+// CLEAR COMMAND
 async function handleClear(interaction) {
   const amount = interaction.options.getInteger('amount');
 
@@ -313,11 +602,10 @@ async function handleSetupTicket(interaction) {
   try {
     const embed = new EmbedBuilder()
       .setColor(RED_COLOR)
-      .setTitle('🎫 Support Ticket System')
+      .setTitle(':lion: YL Ticket System')
       .setDescription(
-        '**Need help?** Click the button below to open a support ticket.\n\n' +
         'Our support team will assist you as soon as possible.\n\n' +
-        '📝 Please describe your issue in detail.'
+        'Please describe your issue in detail.'
       )
       .setImage(GIF_URL)
       .setFooter({ text: 'Ticket System' })
@@ -342,8 +630,8 @@ async function handleSetupTicket(interaction) {
         guild_id: interaction.guild.id,
         message_id: panelMessage.id,
         channel_id: interaction.channel.id,
-        title: '🎫 Support Ticket System',
-        description: 'Need help? Click the button below to open a support ticket.',
+        title: ':lion: YL Ticket System',
+        description: 'Our support team will assist you as soon as possible. Please describe your issue in detail.',
         button_label: '📩 Create Ticket'
       }, { onConflict: 'guild_id' });
 
@@ -473,7 +761,6 @@ async function handleInfo(interaction) {
 }
 
 
-
 // STEAL EMOJIS COMMAND
 async function handleStealEmojis(interaction) {
   const emojisStr = interaction.options.getString("emojis");
@@ -517,7 +804,9 @@ async function handleStealEmojis(interaction) {
     console.error("Error in stealemojis:", e);
     await interaction.editReply("*Error al procesar emojis.*");
   }
-}// BUTTON HANDLER - Create Ticket
+}
+
+// BUTTON HANDLER - Create Ticket
 async function handleButtonInteraction(interaction) {
   const { customId } = interaction;
 
@@ -897,15 +1186,3 @@ app.listen(API_PORT, () => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
-
-
-
-
-
-
-
-
-
-
-
-
