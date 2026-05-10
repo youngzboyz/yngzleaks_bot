@@ -281,7 +281,7 @@ async function handleAnnounce(interaction) {
     .setColor(color)
     .setTitle(title)
     .setDescription(message)
-    .setFooter({ text: Announced by  })
+    .setFooter({ text: `Announced by ${interaction.user.tag}` })
     .setTimestamp();
 
   if (imageUrl) embed.setImage(imageUrl);
@@ -491,8 +491,8 @@ async function handleStealEmojis(interaction) {
       const id = match.groups.id;
       const animated = match.groups.animated === "a";
       const url = animated
-        ? https://cdn.discordapp.com/emojis/.gif
-        : https://cdn.discordapp.com/emojis/.png;
+        ? `https://cdn.discordapp.com/emojis/${id}.gif`
+        : `https://cdn.discordapp.com/emojis/${id}.png`;
 
       try {
         await interaction.guild.emojis.create({
@@ -501,7 +501,7 @@ async function handleStealEmojis(interaction) {
         });
         added++;
       } catch (e) {
-        console.error(Error adding emoji : );
+        console.error(`Error adding emoji ${name}: ${e.message}`);
         errors++;
       }
     }
@@ -510,8 +510,8 @@ async function handleStealEmojis(interaction) {
       return interaction.editReply("*No se encontraron emojis. Copia emojis de otro servidor y pegalos aqui.*");
     }
 
-    let reply = ✅ Se anadieron  emoji(s) al servidor.;
-    if (errors > 0) reply += \n❌  emoji(s) fallaron (limite alcanzado o sin permisos).;
+    let reply = `\u2705 Se anadieron ${added} emoji(s) al servidor.`;
+    if (errors > 0) reply += `\n\u274c ${errors} emoji(s) fallaron (limite alcanzado o sin permisos).`;
     await interaction.editReply(reply);
   } catch (e) {
     console.error("Error in stealemojis:", e);
@@ -897,6 +897,8 @@ app.listen(API_PORT, () => {
 });
 
 client.login(process.env.DISCORD_TOKEN);
+
+
 
 
 
