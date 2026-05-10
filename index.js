@@ -324,12 +324,45 @@ client.on('messageCreate', async (message) => {
 
   try {
     const member = await message.guild.members.fetch(user.id);
+
+    // --- FIRST: Send DM to user BEFORE banning (Discord may block DM after ban) ---
+    let dmSent = false;
+    try {
+      const appealEmbed = new EmbedBuilder()
+        .setColor(RED_COLOR)
+        .setTitle('🔨 You have been banned')
+        .setDescription(
+          `**Server:** ${message.guild.name}\n` +
+          `**Reason:** ${reason}\n` +
+          `**Moderator:** ${message.author.tag}\n\n` +
+          `━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+          `**🔄 Want to appeal your ban?**\n\n` +
+          `You can appeal by simply **replying to this message** in our DMs.\n` +
+          `Explain your situation and we will review it.`
+        )
+        .setImage(GIF_URL)
+        .setTimestamp();
+
+      await user.send({ embeds: [appealEmbed] });
+      dmSent = true;
+      console.log(`Ban DM sent to ${user.tag}`);
+    } catch (dmError) {
+      // User has DMs closed or privacy settings block DMs
+      console.log(`Could not DM ${user.tag} about ban: ${dmError.message}`);
+    }
+
+    // --- SECOND: Execute the ban ---
     await member.ban({ reason });
 
     const embed = new EmbedBuilder()
       .setColor(RED_COLOR)
       .setTitle('User Banned')
-      .setDescription(`**User:** ${user.tag}\n**Reason:** ${reason}\n**Moderator:** ${message.author.tag}`)
+      .setDescription(
+        `**User:** ${user.tag}\n` +
+        `**Reason:** ${reason}\n` +
+        `**Moderator:** ${message.author.tag}\n` +
+        `${dmSent ? '' : '\n⚠️ **Could not send DM to user** (they may have DMs disabled)'}`
+      )
       .setImage(GIF_URL)
       .setTimestamp();
 
@@ -353,30 +386,6 @@ client.on('messageCreate', async (message) => {
       moderatorTag: message.author.tag,
       bannedAt: new Date().toISOString()
     });
-
-    // --- Try to DM the banned user with reason and appeal info ---
-    try {
-      const appealEmbed = new EmbedBuilder()
-        .setColor(RED_COLOR)
-        .setTitle('🔨 You have been banned')
-        .setDescription(
-          `**Server:** ${message.guild.name}\n` +
-          `**Reason:** ${reason}\n` +
-          `**Moderator:** ${message.author.tag}\n\n` +
-          `━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
-          `**🔄 Want to appeal your ban?**\n\n` +
-          `You can appeal by simply **replying to this message** in our DMs.\n` +
-          `Explain your situation and we will review it.`
-        )
-        .setImage(GIF_URL)
-        .setTimestamp();
-
-      await user.send({ embeds: [appealEmbed] });
-      console.log(`Ban DM sent to ${user.tag}`);
-    } catch (dmError) {
-      // User has DMs closed, that's okay
-      console.log(`Could not DM ${user.tag} about ban: ${dmError.message}`);
-    }
   } catch (error) {
     console.error('Error banning user:', error);
     message.reply('*Failed to ban user*');
