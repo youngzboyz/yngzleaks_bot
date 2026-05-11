@@ -387,7 +387,7 @@ client.on('messageCreate', async (message) => {
           .setDescription(`**${bannedUser.username}:**\n${message.content}`)
           .setTimestamp();
 
-        await bannedUser.send({ embeds: [forwardEmbed] });
+        await bannedUser.send(`**${bannedUser.username}:**\n${message.content}`);
         await message.react('✅');
       }
     } catch (error) {
