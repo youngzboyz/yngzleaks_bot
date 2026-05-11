@@ -388,24 +388,96 @@ client.on('messageCreate', async (message) => {
     return message.reply('*Only users with Administrator permissions can use this bot*');
   }
 
-  const user = message.mentions.users.first();
-  if (!user) {
-    return message.reply('*Please mention a user to unban-appeal*\nExample: `!unbanappeal @user`');
+  const args = message.content.split(' ').slice(1);
+  let userId = null;
+  
+  // Check if it's a mention or an ID
+  if (message.mentions.users.size > 0) {
+    userId = message.mentions.users.first().id;
+  } else if (args[0]) {
+    // Try to use the argument as a Discord ID (pure numbers)
+    const possibleId = args[0].replace(/[^0-9]/g, '');
+    if (possibleId.length >= 15 && possibleId.length <= 20) {
+      userId = possibleId;
+    }
   }
 
-  const banInfo = softBannedUsers.get(user.id);
+  if (!userId) {
+    return message.reply('*Please provide a user ID or mention to unban*\nExample: `!unbanappeal 123456789012345678`');
+  }
+
+  let user;
+  try {
+    user = await client.users.fetch(userId);
+  } catch (e) {
+    return message.reply(`*Could not find user with ID ${userId}*`);
+  }
+
+  // Check in-memory first
+  let banInfo = softBannedUsers.get(userId);
+
+  // If not found in memory, try to restore from database records
   if (!banInfo) {
-    return message.reply(`*${user.tag} is not currently soft-banned*`);
+    // The softban might have happened while bot was offline.
+    // Try to find and restore permissions using the moderation logs
+    const { data: banLogs } = await supabase
+      .from('moderation_logs')
+      .select('*')
+      .eq('target_user_id', userId)
+      .eq('action', 'softban')
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (banLogs && banLogs.length > 0) {
+      // We know the user was soft-banned, but we don't have the channel list to restore.
+      // Instead, remove all ViewChannel:false overwrites for this user across all channels
+      try {
+        const guild = message.guild;
+        const channels = await guild.channels.fetch();
+        let restoredCount = 0;
+
+        for (const channel of channels.values()) {
+          if (channel.type === ChannelType.GuildCategory) continue;
+          if (channel.type === ChannelType.GuildVoice) continue;
+          
+          const overwrite = channel.permissionOverwrites.cache.get(userId);
+          if (overwrite) {
+            const denyView = overwrite.deny.has(PermissionsBitField.Flags.ViewChannel, false);
+            if (denyView) {
+              await overwrite.delete();
+              restoredCount++;
+            }
+          }
+        }
+
+        banInfo = {
+          guildId: guild.id,
+          reason: banLogs[0].reason || 'No reason provided',
+          channels: []
+        };
+
+        if (restoredCount === 0) {
+          return message.reply(`*${user.tag} does not appear to have restricted channel access in this server. They may have already been restored or were soft-banned before I was added.*`);
+        }
+      } catch (err) {
+        console.error('Error restoring from database:', err);
+        return message.reply('*Failed to restore permissions from database records.*');
+      }
+    } else {
+      return message.reply(`*${user.tag} is not currently soft-banned and no softban record was found in the database.*`);
+    }
   }
 
   try {
     const guild = message.guild;
     
     // Restore all channel permissions
-    await removeSoftBan(guild, user.id, banInfo.channels);
+    if (banInfo.channels && banInfo.channels.length > 0) {
+      await removeSoftBan(guild, userId, banInfo.channels);
+    }
 
     // Remove from tracking
-    softBannedUsers.delete(user.id);
+    softBannedUsers.delete(userId);
 
     // Send DM to user
     try {
@@ -428,9 +500,9 @@ client.on('messageCreate', async (message) => {
       .setColor(0x00FF00)
       .setTitle('✅ Access Restored')
       .setDescription(
-        `**User:** ${user.tag}\n` +
+        `**User:** ${user.tag} (${userId})\n` +
         `**Restored by:** ${message.author.tag}\n` +
-        `**Original reason for soft ban:** ${banInfo.reason}\n\n` +
+        `**Original reason:** ${banInfo.reason || 'No reason'}\n\n` +
         `All channel permissions have been restored.`
       )
       .setTimestamp();
@@ -442,7 +514,7 @@ client.on('messageCreate', async (message) => {
       guild_id: guild.id,
       action: 'unbanappeal',
       moderator_id: message.author.id,
-      target_user_id: user.id,
+      target_user_id: userId,
       reason: 'Appeal accepted - permissions restored'
     });
 
