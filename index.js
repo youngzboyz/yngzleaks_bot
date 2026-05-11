@@ -48,13 +48,101 @@ const RED_COLOR = 0xFF0000;
 
 // Track soft-banned users: userId => { guildId, guildName, reason, moderatorId, moderatorTag, bannedAt, channels }
 const softBannedUsers = new Collection();
-// Track appeal channels: userId => channelId
+// Track appeal channels: userId => channelId (cache; persisted in DB)
 const appealChannels = new Collection();
+
+async function getSoftBanFromDb(guildId, userId) {
+  const { data, error } = await supabase
+    .from('soft_bans')
+    .select('*')
+    .eq('guild_id', guildId)
+    .eq('target_user_id', userId)
+    .maybeSingle();
+
+  if (error) {
+    console.error('getSoftBanFromDb error:', error);
+    return null;
+  }
+  return data || null;
+}
+
+async function setSoftBanInDb(guildId, userId, moderatorId, reason, channelSnapshot) {
+  const payload = {
+    guild_id: guildId,
+    target_user_id: userId,
+    moderator_id: moderatorId,
+    reason: reason,
+  };
+
+  if (channelSnapshot !== undefined) payload.channel_snapshot = channelSnapshot;
+
+  const { error } = await supabase
+    .from('soft_bans')
+    .upsert(payload, { onConflict: 'guild_id,target_user_id' });
+
+  if (error) console.error('setSoftBanInDb error:', error);
+}
+
+async function deleteSoftBanInDb(guildId, userId) {
+  const { error } = await supabase
+    .from('soft_bans')
+    .delete()
+    .eq('guild_id', guildId)
+    .eq('target_user_id', userId);
+
+  if (error) console.error('deleteSoftBanInDb error:', error);
+}
+
+function tryParseUserId(arg) {
+  if (!arg) return null;
+  const possibleId = String(arg).replace(/[^0-9]/g, '');
+  if (possibleId.length >= 15 && possibleId.length <= 20) return possibleId;
+  return null;
+}
+
+
+async function getAppealChannelFromDb(guildId, userId) {
+  const { data, error } = await supabase
+    .from('appeal_channels')
+    .select('*')
+    .eq('guild_id', guildId)
+    .eq('target_user_id', userId)
+    .maybeSingle();
+
+  if (error) {
+    console.error('getAppealChannelFromDb error:', error);
+    return null;
+  }
+  return data || null;
+}
+
+async function setAppealChannelInDb(guildId, userId, channelId) {
+  const { error } = await supabase
+    .from('appeal_channels')
+    .upsert({ guild_id: guildId, target_user_id: userId, channel_id: channelId }, { onConflict: 'guild_id,target_user_id' });
+
+  if (error) console.error('setAppealChannelInDb error:', error);
+}
+
+async function deleteAppealChannelInDb(guildId, userId) {
+  const { error } = await supabase
+    .from('appeal_channels')
+    .delete()
+    .eq('guild_id', guildId)
+    .eq('target_user_id', userId);
+
+  if (error) console.error('deleteAppealChannelInDb error:', error);
+}
 // Track pending ban confirmations: moderatorId => { user, guild, reason, member, message }
 const pendingBans = new Collection();
 
 // Bot owner ID
 const BOT_OWNER_ID = process.env.BOT_OWNER_ID;
+
+// let startTime = Date.now();
+// let maintenanceMode = false;
+
+
 
 // Slash Commands Definition
 const commands = [
@@ -415,66 +503,52 @@ client.on('messageCreate', async (message) => {
 
   // Check in-memory first
   let banInfo = softBannedUsers.get(userId);
+  let restoredCount = 0;
 
-  // If not found in memory, try to restore from database records
+  // If not found in memory, scan all channels for ViewChannel:false overwrites
   if (!banInfo) {
-    // The softban might have happened while bot was offline.
-    // Try to find and restore permissions using the moderation logs
-    const { data: banLogs } = await supabase
-      .from('moderation_logs')
-      .select('*')
-      .eq('target_user_id', userId)
-      .eq('action', 'softban')
-      .order('created_at', { ascending: false })
-      .limit(1);
+    try {
+      const guild = message.guild;
+      const channels = await guild.channels.fetch();
+      let foundAny = false;
 
-    if (banLogs && banLogs.length > 0) {
-      // We know the user was soft-banned, but we don't have the channel list to restore.
-      // Instead, remove all ViewChannel:false overwrites for this user across all channels
-      try {
-        const guild = message.guild;
-        const channels = await guild.channels.fetch();
-        let restoredCount = 0;
-
-        for (const channel of channels.values()) {
-          if (channel.type === ChannelType.GuildCategory) continue;
-          if (channel.type === ChannelType.GuildVoice) continue;
-          
-          const overwrite = channel.permissionOverwrites.cache.get(userId);
-          if (overwrite) {
-            const denyView = overwrite.deny.has(PermissionsBitField.Flags.ViewChannel, false);
-            if (denyView) {
-              await overwrite.delete();
-              restoredCount++;
-            }
+      for (const channel of channels.values()) {
+        if (channel.type === ChannelType.GuildCategory) continue;
+        if (channel.type === ChannelType.GuildVoice) continue;
+        
+        const overwrite = channel.permissionOverwrites.cache.get(userId);
+        if (overwrite) {
+          const hasDenyView = overwrite.deny.has(PermissionsBitField.Flags.ViewChannel, false);
+          if (hasDenyView) {
+            foundAny = true;
+            await overwrite.delete();
+            restoredCount++;
           }
         }
-
-        banInfo = {
-          guildId: guild.id,
-          reason: banLogs[0].reason || 'No reason provided',
-          channels: []
-        };
-
-        if (restoredCount === 0) {
-          return message.reply(`*${user.tag} does not appear to have restricted channel access in this server. They may have already been restored or were soft-banned before I was added.*`);
-        }
-      } catch (err) {
-        console.error('Error restoring from database:', err);
-        return message.reply('*Failed to restore permissions from database records.*');
       }
-    } else {
-      return message.reply(`*${user.tag} is not currently soft-banned and no softban record was found in the database.*`);
+
+      if (!foundAny) {
+        return message.reply(`*${user.tag} (${userId}) does not have restricted channel access in this server. They may have already been restored or were not soft-banned.*`);
+      }
+    } catch (err) {
+      console.error('Error scanning channels:', err);
+      return message.reply('*Failed to scan channel permissions.*');
+    }
+  } else {
+    // Restore using saved channel list
+    try {
+      const guild = message.guild;
+      if (banInfo.channels && banInfo.channels.length > 0) {
+        await removeSoftBan(guild, userId, banInfo.channels);
+      }
+      restoredCount = banInfo.channels?.length || 0;
+    } catch (err) {
+      console.error('Error restoring from memory:', err);
     }
   }
 
   try {
     const guild = message.guild;
-    
-    // Restore all channel permissions
-    if (banInfo.channels && banInfo.channels.length > 0) {
-      await removeSoftBan(guild, userId, banInfo.channels);
-    }
 
     // Remove from tracking
     softBannedUsers.delete(userId);
@@ -600,19 +674,20 @@ async function handleAppealMessage(message) {
 
   if (!banInfo) {
     // Check database
+    // Look for bans with [SOFTBAN] prefix in the reason
     const { data: banLogs } = await supabase
       .from('moderation_logs')
       .select('*')
       .eq('target_user_id', message.author.id)
-      .eq('action', 'softban')
+      .eq('action', 'ban')
       .order('created_at', { ascending: false })
       .limit(1);
 
-    if (banLogs && banLogs.length > 0) {
+    if (banLogs && banLogs.length > 0 && banLogs[0].reason && banLogs[0].reason.startsWith('[SOFTBAN]')) {
       banInfo = {
         guildId: banLogs[0].guild_id,
         guildName: 'the server',
-        reason: banLogs[0].reason || 'No reason provided',
+        reason: banLogs[0].reason.replace('[SOFTBAN] ', '') || 'No reason provided',
         moderatorId: banLogs[0].moderator_id,
         moderatorTag: 'a moderator'
       };
@@ -1123,12 +1198,13 @@ async function handleButtonInteraction(interaction) {
 
       await interaction.editReply({ embeds: [embed], components: [] });
 
+      // Log as 'ban' since the database only accepts: kick, ban, mute, warn, unban, unmute
       await supabase.from('moderation_logs').insert({
         guild_id: pending.guild.id,
-        action: 'softban',
+        action: 'ban',
         moderator_id: interaction.user.id,
         target_user_id: pending.user.id,
-        reason: pending.reason
+        reason: `[SOFTBAN] ${pending.reason}`
       });
     } catch (error) {
       console.error('Error in soft ban:', error);
