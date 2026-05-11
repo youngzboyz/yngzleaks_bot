@@ -47,10 +47,11 @@ const GIF_URL = 'https://cdn-longterm.mee6.xyz/plugins/welcome/images/1014210083
 const RED_COLOR = 0xFF0000;
 
 // Track soft-banned users: userId => { guildId, guildName, reason, moderatorId, moderatorTag, bannedAt, channels }
-// channels = array of { channelId, type, overwriteId } to restore later
 const softBannedUsers = new Collection();
 // Track appeal channels: userId => channelId
 const appealChannels = new Collection();
+// Track pending ban confirmations: moderatorId => { user, guild, reason, member, message }
+const pendingBans = new Collection();
 
 // Bot owner ID
 const BOT_OWNER_ID = process.env.BOT_OWNER_ID;
@@ -290,17 +291,10 @@ client.on('messageCreate', async (message) => {
 
   const args = message.content.split(' ').slice(1);
   const user = message.mentions.users.first();
-  
-  // Check for -h flag (hard ban, no appeal). Default is soft ban (appealable).
-  const hardBanIndex = args.indexOf('-h');
-  const isHardBan = hardBanIndex !== -1;
-  
-  // Remove the -h flag from args before extracting reason
-  if (isHardBan) args.splice(hardBanIndex, 1);
   const reason = args.slice(1).join(' ') || 'No reason provided';
 
   if (!user) {
-    return message.reply('*Please mention a user to ban*\nUse `!ban @user reason` (soft ban, appealable)\nUse `!ban @user -h reason` (hard ban, no appeal)');
+    return message.reply('*Please mention a user to ban*\nExample: `!ban @user reason`');
   }
 
   if (user.id === message.author.id) {
@@ -313,117 +307,43 @@ client.on('messageCreate', async (message) => {
       return message.reply('*User is not in the server*');
     }
 
-    if (!isHardBan) {
-      // ===== SOFT BAN (default) =====
-      // Send DM first
-      try {
-        const appealEmbed = new EmbedBuilder()
-          .setColor(RED_COLOR)
-          .setTitle('🔨 You have been restricted')
-          .setDescription(
-            `**Server:** ${message.guild.name}\n` +
-            `**Reason:** ${reason}\n` +
-            `**Moderator:** ${message.author.tag}\n\n` +
-            `━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
-            `**🔄 You can appeal this decision!**\n\n` +
-            `• You are still in the server but cannot see any channels\n` +
-            `• Send a message to this bot to submit your appeal\n` +
-            `• Your messages will be reviewed by staff`
-          )
-          .setImage(GIF_URL)
-          .setTimestamp();
+    // Store pending ban
+    pendingBans.set(message.author.id, {
+      user,
+      member,
+      guild: message.guild,
+      reason,
+      channel: message.channel
+    });
 
-        await user.send({ embeds: [appealEmbed] });
-        console.log(`Soft ban DM sent to ${user.tag}`);
-      } catch (dmError) {
-        console.log(`Could not DM ${user.tag}: ${dmError.message}`);
-      }
+    const confirmEmbed = new EmbedBuilder()
+      .setColor(RED_COLOR)
+      .setTitle('⚖️ Ban Confirmation')
+      .setDescription(
+        `**User:** ${user.tag}\n` +
+        `**Reason:** ${reason}\n\n` +
+        `Choose the type of ban:`
+      )
+      .setTimestamp();
 
-      // Apply soft ban (hide all channels)
-      const modifiedChannels = await applySoftBan(message.guild, user.id, reason);
+    const softBanButton = new ButtonBuilder()
+      .setCustomId(`ban_soft_${message.author.id}`)
+      .setLabel('🔇 Soft Ban (with appeal)')
+      .setStyle(ButtonStyle.Success);
 
-      // Store info
-      softBannedUsers.set(user.id, {
-        guildId: message.guild.id,
-        guildName: message.guild.name,
-        reason: reason,
-        moderatorId: message.author.id,
-        moderatorTag: message.author.tag,
-        bannedAt: new Date().toISOString(),
-        channels: modifiedChannels
-      });
+    const hardBanButton = new ButtonBuilder()
+      .setCustomId(`ban_hard_${message.author.id}`)
+      .setLabel('🔨 Hard Ban (no appeal)')
+      .setStyle(ButtonStyle.Danger);
 
-      const embed = new EmbedBuilder()
-        .setColor(RED_COLOR)
-        .setTitle('🔇 User Soft-Banned')
-        .setDescription(
-          `**User:** ${user.tag}\n` +
-          `**Reason:** ${reason}\n` +
-          `**Moderator:** ${message.author.tag}\n` +
-          `**Status:** Appealable (soft ban)\n` +
-          `**Channels hidden:** ${modifiedChannels.length}\n\n` +
-          `Use \`!unbanappeal @${user.username}\` to restore access`
-        )
-        .setImage(GIF_URL)
-        .setTimestamp();
+    const cancelButton = new ButtonBuilder()
+      .setCustomId(`ban_cancel_${message.author.id}`)
+      .setLabel('❌ Cancel')
+      .setStyle(ButtonStyle.Secondary);
 
-      await message.reply({ embeds: [embed] });
+    const row = new ActionRowBuilder().addComponents(softBanButton, hardBanButton, cancelButton);
 
-      // Log to database
-      await supabase.from('moderation_logs').insert({
-        guild_id: message.guild.id,
-        action: 'softban',
-        moderator_id: message.author.id,
-        target_user_id: user.id,
-        reason: reason
-      });
-
-    } else {
-      // ===== NORMAL BAN (no appeal) =====
-      let dmSent = false;
-      try {
-        const banEmbed = new EmbedBuilder()
-          .setColor(RED_COLOR)
-          .setTitle('🔨 You have been banned')
-          .setDescription(
-            `**Server:** ${message.guild.name}\n` +
-            `**Reason:** ${reason}\n` +
-            `**Moderator:** ${message.author.tag}`
-          )
-          .setImage(GIF_URL)
-          .setTimestamp();
-
-        await user.send({ embeds: [banEmbed] });
-        dmSent = true;
-        console.log(`Ban DM sent to ${user.tag}`);
-      } catch (dmError) {
-        console.log(`Could not DM ${user.tag}: ${dmError.message}`);
-      }
-
-      await member.ban({ reason });
-
-      const embed = new EmbedBuilder()
-        .setColor(RED_COLOR)
-        .setTitle('User Banned')
-        .setDescription(
-          `**User:** ${user.tag}\n` +
-          `**Reason:** ${reason}\n` +
-          `**Moderator:** ${message.author.tag}\n` +
-          `${dmSent ? '' : '\n⚠️ **Could not send DM to user** (they may have DMs disabled)'}`
-        )
-        .setImage(GIF_URL)
-        .setTimestamp();
-
-      await message.reply({ content: successMessage('Ban'), embeds: [embed] });
-
-      await supabase.from('moderation_logs').insert({
-        guild_id: message.guild.id,
-        action: 'ban',
-        moderator_id: message.author.id,
-        target_user_id: user.id,
-        reason: reason
-      });
-    }
+    await message.reply({ embeds: [confirmEmbed], components: [row] });
 
   } catch (error) {
     console.error('Error in ban command:', error);
@@ -1034,6 +954,158 @@ async function handleStealEmojis(interaction) {
 // BUTTON HANDLER
 async function handleButtonInteraction(interaction) {
   const { customId } = interaction;
+
+  // Handle ban confirmations
+  if (customId.startsWith('ban_soft_')) {
+    const modId = customId.replace('ban_soft_', '');
+    const pending = pendingBans.get(modId);
+    if (!pending) return interaction.reply({ content: '*This ban request expired*', ephemeral: true });
+    
+    if (interaction.user.id !== modId) {
+      return interaction.reply({ content: '*Only the person who requested the ban can confirm*', ephemeral: true });
+    }
+
+    await interaction.deferReply();
+    pendingBans.delete(modId);
+
+    try {
+      // Send DM first
+      try {
+        const appealEmbed = new EmbedBuilder()
+          .setColor(RED_COLOR)
+          .setTitle('🔨 You have been restricted')
+          .setDescription(
+            `**Server:** ${pending.guild.name}\n` +
+            `**Reason:** ${pending.reason}\n` +
+            `**Moderator:** ${interaction.user.tag}\n\n` +
+            `━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+            `**🔄 You can appeal this decision!**\n\n` +
+            `• You are still in the server but cannot see any channels\n` +
+            `• Send a message to this bot to submit your appeal\n` +
+            `• Your messages will be reviewed by staff`
+          )
+          .setImage(GIF_URL)
+          .setTimestamp();
+
+        await pending.user.send({ embeds: [appealEmbed] });
+      } catch (dmError) {
+        console.log(`Could not DM ${pending.user.tag}: ${dmError.message}`);
+      }
+
+      // Apply soft ban
+      const modifiedChannels = await applySoftBan(pending.guild, pending.user.id, pending.reason);
+
+      softBannedUsers.set(pending.user.id, {
+        guildId: pending.guild.id,
+        guildName: pending.guild.name,
+        reason: pending.reason,
+        moderatorId: interaction.user.id,
+        moderatorTag: interaction.user.tag,
+        bannedAt: new Date().toISOString(),
+        channels: modifiedChannels
+      });
+
+      const embed = new EmbedBuilder()
+        .setColor(RED_COLOR)
+        .setTitle('🔇 User Soft-Banned')
+        .setDescription(
+          `**User:** ${pending.user.tag}\n` +
+          `**Reason:** ${pending.reason}\n` +
+          `**Moderator:** ${interaction.user.tag}\n` +
+          `**Status:** Appealable (soft ban)\n` +
+          `**Channels hidden:** ${modifiedChannels.length}\n\n` +
+          `Use \`!unbanappeal @${pending.user.username}\` to restore access`
+        )
+        .setImage(GIF_URL)
+        .setTimestamp();
+
+      await interaction.editReply({ embeds: [embed], components: [] });
+
+      await supabase.from('moderation_logs').insert({
+        guild_id: pending.guild.id,
+        action: 'softban',
+        moderator_id: interaction.user.id,
+        target_user_id: pending.user.id,
+        reason: pending.reason
+      });
+    } catch (error) {
+      console.error('Error in soft ban:', error);
+      await interaction.editReply({ content: '*Failed to apply soft ban*', components: [] });
+    }
+    return;
+  }
+
+  if (customId.startsWith('ban_hard_')) {
+    const modId = customId.replace('ban_hard_', '');
+    const pending = pendingBans.get(modId);
+    if (!pending) return interaction.reply({ content: '*This ban request expired*', ephemeral: true });
+    
+    if (interaction.user.id !== modId) {
+      return interaction.reply({ content: '*Only the person who requested the ban can confirm*', ephemeral: true });
+    }
+
+    await interaction.deferReply();
+    pendingBans.delete(modId);
+
+    try {
+      let dmSent = false;
+      try {
+        const banEmbed = new EmbedBuilder()
+          .setColor(RED_COLOR)
+          .setTitle('🔨 You have been banned')
+          .setDescription(
+            `**Server:** ${pending.guild.name}\n` +
+            `**Reason:** ${pending.reason}\n` +
+            `**Moderator:** ${interaction.user.tag}`
+          )
+          .setImage(GIF_URL)
+          .setTimestamp();
+
+        await pending.user.send({ embeds: [banEmbed] });
+        dmSent = true;
+      } catch (dmError) {
+        console.log(`Could not DM ${pending.user.tag}: ${dmError.message}`);
+      }
+
+      await pending.member.ban({ reason: pending.reason });
+
+      const embed = new EmbedBuilder()
+        .setColor(RED_COLOR)
+        .setTitle('User Banned')
+        .setDescription(
+          `**User:** ${pending.user.tag}\n` +
+          `**Reason:** ${pending.reason}\n` +
+          `**Moderator:** ${interaction.user.tag}\n` +
+          `${dmSent ? '' : '\n⚠️ **Could not send DM to user**'}`
+        )
+        .setImage(GIF_URL)
+        .setTimestamp();
+
+      await interaction.editReply({ embeds: [embed], components: [] });
+
+      await supabase.from('moderation_logs').insert({
+        guild_id: pending.guild.id,
+        action: 'ban',
+        moderator_id: interaction.user.id,
+        target_user_id: pending.user.id,
+        reason: pending.reason
+      });
+    } catch (error) {
+      console.error('Error in hard ban:', error);
+      await interaction.editReply({ content: '*Failed to ban user*', components: [] });
+    }
+    return;
+  }
+
+  if (customId.startsWith('ban_cancel_')) {
+    const modId = customId.replace('ban_cancel_', '');
+    if (interaction.user.id !== modId) {
+      return interaction.reply({ content: '*Only the person who requested the ban can cancel*', ephemeral: true });
+    }
+    pendingBans.delete(modId);
+    await interaction.update({ content: '*Cancelled*', embeds: [], components: [] });
+    return;
+  }
 
   if (customId === 'create_ticket') {
     const { data: existingTickets } = await supabase
