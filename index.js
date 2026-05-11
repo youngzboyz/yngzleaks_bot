@@ -291,16 +291,16 @@ client.on('messageCreate', async (message) => {
   const args = message.content.split(' ').slice(1);
   const user = message.mentions.users.first();
   
-  // Check for -a flag (appealable soft ban)
-  const appealableIndex = args.indexOf('-a');
-  const isAppealable = appealableIndex !== -1;
+  // Check for -h flag (hard ban, no appeal). Default is soft ban (appealable).
+  const hardBanIndex = args.indexOf('-h');
+  const isHardBan = hardBanIndex !== -1;
   
-  // Remove the -a flag from args before extracting reason
-  if (isAppealable) args.splice(appealableIndex, 1);
+  // Remove the -h flag from args before extracting reason
+  if (isHardBan) args.splice(hardBanIndex, 1);
   const reason = args.slice(1).join(' ') || 'No reason provided';
 
   if (!user) {
-    return message.reply('*Please mention a user to ban*\nUse `!ban @user -a reason` for an appealable soft ban');
+    return message.reply('*Please mention a user to ban*\nUse `!ban @user reason` (soft ban, appealable)\nUse `!ban @user -h reason` (hard ban, no appeal)');
   }
 
   if (user.id === message.author.id) {
@@ -313,8 +313,8 @@ client.on('messageCreate', async (message) => {
       return message.reply('*User is not in the server*');
     }
 
-    if (isAppealable) {
-      // ===== SOFT BAN (appealable) =====
+    if (!isHardBan) {
+      // ===== SOFT BAN (default) =====
       // Send DM first
       try {
         const appealEmbed = new EmbedBuilder()
