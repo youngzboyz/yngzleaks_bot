@@ -384,9 +384,7 @@ client.on('messageCreate', async (message) => {
       if (bannedUser) {
         const forwardEmbed = new EmbedBuilder()
           .setColor(0x5865F2)
-          .setAuthor({ name: message.member?.displayName || message.author.username, iconURL: message.author.displayAvatarURL() })
-          .setDescription(message.content)
-          .setFooter({ text: 'Staff • Reply in this channel to send more messages' })
+          .setDescription(`**${bannedUser.username}:**\n${message.content}`)
           .setTimestamp();
 
         await bannedUser.send({ embeds: [forwardEmbed] });
