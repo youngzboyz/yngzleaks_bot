@@ -282,6 +282,35 @@ client.on('messageCreate', async (message) => {
     return handleAppealMessage(message);
   }
 
+  // Handle messages in appeal channels (forward to banned user)
+  let appealUserId = null;
+  for (const [userId, chId] of appealChannels) {
+    if (chId === message.channel.id) {
+      appealUserId = userId;
+      break;
+    }
+  }
+  if (appealUserId) {
+    try {
+      const bannedUser = await client.users.fetch(appealUserId);
+      if (bannedUser) {
+        const forwardEmbed = new EmbedBuilder()
+          .setColor(0x5865F2)
+          .setAuthor({ name: message.member?.displayName || message.author.username, iconURL: message.author.displayAvatarURL() })
+          .setDescription(message.content)
+          .setFooter({ text: 'Staff • Reply in this channel to send more messages' })
+          .setTimestamp();
+
+        await bannedUser.send({ embeds: [forwardEmbed] });
+        await message.react('✅');
+      }
+    } catch (error) {
+      console.error('Error forwarding to banned user:', error);
+      await message.reply('*Could not forward your message. They may have closed DMs.*');
+    }
+    return;
+  }
+
   // Handle !ban command
   if (!message.content.startsWith('!ban')) return;
 
@@ -542,11 +571,12 @@ async function handleAppealMessage(message) {
       if (channel) {
         const msgEmbed = new EmbedBuilder()
           .setColor(0x5865F2)
-          .setAuthor({ name: message.author.tag, iconURL: message.author.displayAvatarURL() })
+          .setAuthor({ name: message.author.username, iconURL: message.author.displayAvatarURL() })
           .setDescription(message.content || '*empty message*')
+          .setFooter({ text: `ID: ${message.author.id}` })
           .setTimestamp();
 
-        await channel.send({ embeds: [msgEmbed] });
+        await channel.send({ content: `📩 **New message from ${message.author.tag}**`, embeds: [msgEmbed] });
         await message.react('✅');
         return;
       }
