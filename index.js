@@ -289,6 +289,7 @@ async function applySoftBan(guild, userId, reason) {
   const channels = await guild.channels.fetch();
   const modifiedChannels = [];
 
+
   for (const channel of channels.values()) {
     // Skip categories since discord applies perms to children
     if (channel.type === ChannelType.GuildCategory) continue;
@@ -371,13 +372,33 @@ client.on('messageCreate', async (message) => {
   }
 
   // Handle messages in appeal channels (forward to banned user)
+  // Prefer Supabase mapping (durable). Cache is best-effort.
   let appealUserId = null;
+
+  // 1) Try cache (fast)
   for (const [userId, chId] of appealChannels) {
     if (chId === message.channel.id) {
       appealUserId = userId;
       break;
     }
   }
+
+  // 2) If not in cache, query DB: find who owns this appeal channel
+  if (!appealUserId) {
+    try {
+      const { data: appealRow } = await supabase
+        .from('appeal_channels')
+        .select('target_user_id, guild_id, channel_id')
+        .eq('guild_id', message.guild.id)
+        .eq('channel_id', message.channel.id)
+        .maybeSingle();
+
+      if (appealRow?.target_user_id) appealUserId = appealRow.target_user_id;
+    } catch (e) {
+      console.error('Error fetching appeal_channels by channel_id:', e);
+    }
+  }
+
   if (appealUserId) {
     try {
       const bannedUser = await client.users.fetch(appealUserId);
@@ -398,6 +419,7 @@ client.on('messageCreate', async (message) => {
     }
     return;
   }
+
 
   // Handle !ban command
   if (!message.content.startsWith('!ban')) return;
@@ -432,6 +454,7 @@ client.on('messageCreate', async (message) => {
       reason,
       channel: message.channel
     });
+
 
     const confirmEmbed = new EmbedBuilder()
       .setColor(RED_COLOR)
@@ -501,12 +524,30 @@ client.on('messageCreate', async (message) => {
     return message.reply(`*Could not find user with ID ${userId}*`);
   }
 
-  // Check in-memory first
+// Check in-memory first (fast path)
   let banInfo = softBannedUsers.get(userId);
-  let restoredCount = 0;
 
-  // If not found in memory, scan all channels for ViewChannel:false overwrites
-  if (!banInfo) {
+  // Always try DB first, so it works after bot restarts
+  let dbBanInfo = await getSoftBanFromDb(message.guild.id, userId);
+
+  // If we have a DB record and bot cache is empty, use it
+  if (!banInfo && dbBanInfo) {
+    banInfo = {
+      reason: dbBanInfo.reason,
+      channels: dbBanInfo.channel_snapshot || null,
+    };
+  }
+
+  // Restore using DB snapshot when available, otherwise fallback to scan
+  let restoredCount = 0;
+  if (banInfo?.channels && Array.isArray(banInfo.channels) && banInfo.channels.length > 0) {
+    try {
+      await removeSoftBan(message.guild, userId, banInfo.channels);
+      restoredCount = banInfo.channels.length;
+    } catch (err) {
+      console.error('Error restoring using DB snapshot:', err);
+    }
+  } else {
     try {
       const guild = message.guild;
       const channels = await guild.channels.fetch();
@@ -515,7 +556,7 @@ client.on('messageCreate', async (message) => {
       for (const channel of channels.values()) {
         if (channel.type === ChannelType.GuildCategory) continue;
         if (channel.type === ChannelType.GuildVoice) continue;
-        
+
         const overwrite = channel.permissionOverwrites.cache.get(userId);
         if (overwrite) {
           const hasDenyView = overwrite.deny.has(PermissionsBitField.Flags.ViewChannel, false);
@@ -534,17 +575,11 @@ client.on('messageCreate', async (message) => {
       console.error('Error scanning channels:', err);
       return message.reply('*Failed to scan channel permissions.*');
     }
-  } else {
-    // Restore using saved channel list
-    try {
-      const guild = message.guild;
-      if (banInfo.channels && banInfo.channels.length > 0) {
-        await removeSoftBan(guild, userId, banInfo.channels);
-      }
-      restoredCount = banInfo.channels?.length || 0;
-    } catch (err) {
-      console.error('Error restoring from memory:', err);
-    }
+  }
+
+  // Remove soft-ban record from DB (so future calls are consistent)
+  if (dbBanInfo) {
+    await deleteSoftBanInDb(message.guild.id, userId);
   }
 
   try {
@@ -671,6 +706,7 @@ client.on('interactionCreate', async (interaction) => {
 async function handleAppealMessage(message) {
   // Check if user is soft-banned
   let banInfo = softBannedUsers.get(message.author.id);
+
 
   if (!banInfo) {
     // Check database
@@ -1601,4 +1637,7 @@ app.listen(API_PORT, () => {
   console.log(`API Server running on http://localhost:${API_PORT}`);
 });
 
-client.login(process.env.DISCORD_TOKEN);
+// client.login(process.env.DISCORD_TOKEN);
+// WARNING: DISCORD_TOKEN placeholder in .env will cause TokenInvalid on startup.
+// Restore login when you set a valid DISCORD_TOKEN.
+
