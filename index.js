@@ -46,6 +46,18 @@ const appealChannels = new Collection();
 const pendingBans = new Collection();
 const BOT_OWNER_ID = process.env.BOT_OWNER_ID;
 
+process.on('unhandledRejection', (error) => {
+  console.error('Unhandled rejection:', error);
+});
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught exception:', error);
+});
+
+client.on('error', (error) => {
+  console.error('Discord client error:', error);
+});
+
 const commands = [
   new SlashCommandBuilder()
     .setName('announce')
@@ -454,6 +466,7 @@ client.on('messageCreate', async (message) => {
 // Interaction handler
 client.on('interactionCreate', async (interaction) => {
   const commandName = interaction.commandName || interaction.customId || 'unknown';
+  console.log(`Interaction received: ${interaction.type} ${commandName} from ${interaction.user?.tag || interaction.user?.id || 'unknown'}`);
 
   try {
   if (!interaction.isChatInputCommand()) {
@@ -601,15 +614,17 @@ async function handleButtonInteraction(interaction) {
 
   // Create ticket
   if (customId === 'create_ticket') {
-    const { data: existingTickets } = await supabase.from('tickets').select('*').eq('guild_id', interaction.guild.id).eq('creator_id', interaction.user.id).eq('status', 'open');
-    if (existingTickets && existingTickets.length > 0) return interaction.reply({ content: '*You already have an open ticket*', ephemeral: true });
-
     const modal = new ModalBuilder().setCustomId('ticket_modal').setTitle('Create New Ticket');
     modal.addComponents(
       new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('ticket_subject').setLabel('Subject').setStyle(TextInputStyle.Short).setPlaceholder('e.g., Server issue').setRequired(true).setMaxLength(100)),
       new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('ticket_description').setLabel('Description').setStyle(TextInputStyle.Paragraph).setPlaceholder('Describe your issue...').setRequired(true).setMaxLength(1000))
     );
-    await interaction.showModal(modal);
+    try {
+      await interaction.showModal(modal);
+    } catch (error) {
+      console.error('Could not show ticket modal:', error);
+    }
+    return;
   }
 
   // Close appeal
@@ -672,6 +687,17 @@ async function handleModalSubmit(interaction) {
   const description = interaction.fields.getTextInputValue('ticket_description');
 
   try {
+    const { data: existingTickets } = await supabase
+      .from('tickets')
+      .select('*')
+      .eq('guild_id', interaction.guild.id)
+      .eq('creator_id', interaction.user.id)
+      .eq('status', 'open');
+
+    if (existingTickets && existingTickets.length > 0) {
+      return interaction.editReply({ content: '*You already have an open ticket*' });
+    }
+
     const { data: lastTicket } = await supabase.from('tickets').select('ticket_number').order('ticket_number', { ascending: false }).limit(1);
     const ticketNumber = lastTicket && lastTicket.length > 0 ? lastTicket[0].ticket_number + 1 : 1;
 
