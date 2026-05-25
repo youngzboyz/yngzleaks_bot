@@ -90,7 +90,18 @@ client.once('ready', async () => {
 });
 
 function hasAdminPermission(member) {
-  return member.permissions.has(PermissionsBitField.Flags.Administrator);
+  if (!member || !member.permissions) return false;
+
+  try {
+    if (typeof member.permissions.has === 'function') {
+      return member.permissions.has(PermissionsBitField.Flags.Administrator);
+    }
+
+    return new PermissionsBitField(BigInt(member.permissions)).has(PermissionsBitField.Flags.Administrator);
+  } catch (error) {
+    console.error('Permission check failed:', error);
+    return false;
+  }
 }
 
 function successMessage(text) {
@@ -105,11 +116,13 @@ async function getBotOwnerId() {
   } catch { return null; }
 }
 
-async function applySoftBan(guild, userId) {
+async function applySoftBan(guild, userId, excludedChannelIds = []) {
   const channels = await guild.channels.fetch();
   const modifiedChannels = [];
+  const excluded = new Set(excludedChannelIds);
   for (const channel of channels.values()) {
     if (channel.type === ChannelType.GuildCategory || channel.type === ChannelType.GuildVoice) continue;
+    if (excluded.has(channel.id)) continue;
     try {
       const existingOverwrite = channel.permissionOverwrites.cache.get(userId);
       let originalOverwrite = null;
@@ -129,7 +142,10 @@ async function removeSoftBan(guild, userId, channelList) {
       const channel = guild.channels.cache.get(entry.channelId);
       if (!channel) continue;
       if (entry.hadOverwrite && entry.originalOverwrite) {
-        await channel.permissionOverwrites.create(userId, { ViewChannel: null });
+        await channel.permissionOverwrites.create(userId, {
+          allow: BigInt(entry.originalOverwrite.allow || '0'),
+          deny: BigInt(entry.originalOverwrite.deny || '0'),
+        });
       } else {
         const overwrite = channel.permissionOverwrites.cache.get(userId);
         if (overwrite) {
@@ -142,6 +158,173 @@ async function removeSoftBan(guild, userId, channelList) {
       }
     } catch (err) {}
   }
+}
+
+async function persistSoftBan(guildId, userId, moderatorId, reason, channels) {
+  try {
+    await supabase.from('soft_bans').upsert({
+      guild_id: guildId,
+      target_user_id: userId,
+      moderator_id: moderatorId,
+      reason,
+      channel_snapshot: channels,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'guild_id,target_user_id' });
+  } catch (error) {
+    console.error('Could not persist soft ban:', error);
+  }
+}
+
+async function deleteSoftBanRecord(guildId, userId) {
+  try {
+    await supabase.from('soft_bans').delete().eq('guild_id', guildId).eq('target_user_id', userId);
+  } catch (error) {
+    console.error('Could not delete soft ban record:', error);
+  }
+}
+
+async function persistAppealChannel(guildId, userId, channelId) {
+  try {
+    await supabase.from('appeal_channels').upsert({
+      guild_id: guildId,
+      target_user_id: userId,
+      channel_id: channelId,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'guild_id,target_user_id' });
+  } catch (error) {
+    console.error('Could not persist appeal channel:', error);
+  }
+}
+
+async function deleteAppealChannelRecord(guildId, userId) {
+  try {
+    await supabase.from('appeal_channels').delete().eq('guild_id', guildId).eq('target_user_id', userId);
+  } catch (error) {
+    console.error('Could not delete appeal channel record:', error);
+  }
+}
+
+async function getSoftBanInfo(userId) {
+  const memoryBan = softBannedUsers.get(userId);
+  if (memoryBan) return memoryBan;
+
+  try {
+    const { data: bans } = await supabase
+      .from('soft_bans')
+      .select('*')
+      .eq('target_user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (bans && bans.length > 0) {
+      const ban = bans[0];
+      return {
+        guildId: ban.guild_id,
+        guildName: 'the server',
+        reason: ban.reason || 'No reason provided',
+        moderatorId: ban.moderator_id,
+        moderatorTag: 'a moderator',
+        bannedAt: ban.created_at,
+        channels: ban.channel_snapshot || [],
+      };
+    }
+  } catch (error) {
+    console.error('Could not load soft ban record:', error);
+  }
+
+  try {
+    const { data: banLogs } = await supabase
+      .from('moderation_logs').select('*').eq('target_user_id', userId).eq('action', 'ban')
+      .order('created_at', { ascending: false }).limit(1);
+    if (banLogs && banLogs.length > 0 && banLogs[0].reason?.startsWith('[SOFTBAN]')) {
+      return {
+        guildId: banLogs[0].guild_id,
+        guildName: 'the server',
+        reason: banLogs[0].reason.replace('[SOFTBAN] ', ''),
+        moderatorId: banLogs[0].moderator_id,
+        moderatorTag: 'a moderator',
+      };
+    }
+  } catch (error) {
+    console.error('Could not load moderation log:', error);
+  }
+
+  return null;
+}
+
+async function getExistingAppealChannel(guild, userId) {
+  const memoryChannelId = appealChannels.get(userId);
+  if (memoryChannelId) {
+    const channel = guild.channels.cache.get(memoryChannelId);
+    if (channel) return channel;
+    appealChannels.delete(userId);
+  }
+
+  try {
+    const { data: rows } = await supabase
+      .from('appeal_channels')
+      .select('*')
+      .eq('guild_id', guild.id)
+      .eq('target_user_id', userId)
+      .limit(1);
+
+    if (rows && rows.length > 0) {
+      const channel = guild.channels.cache.get(rows[0].channel_id) || await guild.channels.fetch(rows[0].channel_id).catch(() => null);
+      if (channel) {
+        appealChannels.set(userId, channel.id);
+        return channel;
+      }
+    }
+  } catch (error) {
+    console.error('Could not load appeal channel:', error);
+  }
+
+  return null;
+}
+
+async function ensureAppealChannel(guild, user, banInfo, initialMessage = null) {
+  const existingChannel = await getExistingAppealChannel(guild, user.id);
+  if (existingChannel) return existingChannel;
+
+  let appealCategory = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name.toLowerCase().includes('appeals'));
+  if (!appealCategory) {
+    appealCategory = await guild.channels.create({
+      name: 'BAN APPEALS',
+      type: ChannelType.GuildCategory,
+      permissionOverwrites: [{ id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] }],
+    });
+  }
+
+  const safeName = user.username.replace(/[^a-zA-Z0-9]/g, '').toLowerCase().slice(0, 20) || user.id;
+  const appealChannel = await guild.channels.create({
+    name: `appeal-${safeName}`,
+    type: ChannelType.GuildText,
+    parent: appealCategory.id,
+    permissionOverwrites: [
+      { id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+      { id: user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory] },
+      { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.ManageChannels] },
+    ],
+  });
+
+  guild.members.cache.forEach(member => {
+    if (hasAdminPermission(member) && !member.user.bot) {
+      appealChannel.permissionOverwrites.create(member.id, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }).catch(() => {});
+    }
+  });
+
+  appealChannels.set(user.id, appealChannel.id);
+  await persistAppealChannel(guild.id, user.id, appealChannel.id);
+
+  const appealHeaderEmbed = new EmbedBuilder().setColor(0xFFA500).setTitle('New Ban Appeal')
+    .setDescription(`**User:** ${user.tag} (${user.id})\n**Original Reason:** ${banInfo.reason}\n**Banned by:** ${banInfo.moderatorTag}\n**Status:** Soft-banned\n\n${initialMessage ? `**Appeal Message:**\n${initialMessage}\n\n` : '**Appeal Message:** Waiting for the user to write here or DM the bot.\n\n'}**Instructions:**\nMessages from the user appear in this channel.\nStaff can answer here. Use \`!unbanappeal ${user.id}\` to restore access, or close this appeal.`)
+    .setTimestamp();
+
+  const closeButton = new ButtonBuilder().setCustomId(`close_appeal_${user.id}`).setLabel('Close Appeal').setStyle(ButtonStyle.Danger);
+  const row = new ActionRowBuilder().addComponents(closeButton);
+
+  await appealChannel.send({ content: `New appeal channel for ${user}`, embeds: [appealHeaderEmbed], components: [row] });
+  return appealChannel;
 }
 
 // Main message handler
@@ -157,6 +340,8 @@ client.on('messageCreate', async (message) => {
     if (chId === message.channel.id) { appealUserId = userId; break; }
   }
   if (appealUserId) {
+    if (message.author.id === appealUserId) return;
+    if (message.content.startsWith('!') || message.content.startsWith('/')) return;
     try {
       const bannedUser = await client.users.fetch(appealUserId);
       if (bannedUser) {
@@ -164,7 +349,7 @@ client.on('messageCreate', async (message) => {
         await message.react('✅');
       }
     } catch (error) {
-      await message.reply('*Could not forward. They may have closed DMs.*');
+      await message.reply('*Could not forward by DM. The user can still read this appeal channel.*');
     }
     return;
   }
@@ -221,10 +406,10 @@ client.on('messageCreate', async (message) => {
   let user;
   try { user = await client.users.fetch(userId); } catch (e) { return message.reply(`*User ${userId} not found*`); }
 
-  let banInfo = softBannedUsers.get(userId);
+  let banInfo = await getSoftBanInfo(userId);
   let restoredCount = 0;
 
-  if (!banInfo) {
+  if (!banInfo || !banInfo.channels?.length) {
     try {
       const guild = message.guild;
       const channels = await guild.channels.fetch();
@@ -238,7 +423,7 @@ client.on('messageCreate', async (message) => {
           restoredCount++;
         }
       }
-      if (!foundAny) return message.reply(`*${user.tag} does not have restricted access*`);
+      if (!foundAny && !banInfo) return message.reply(`*${user.tag} does not have restricted access*`);
     } catch (err) { return message.reply('*Failed to scan channels*'); }
   } else {
     try {
@@ -249,6 +434,9 @@ client.on('messageCreate', async (message) => {
 
   try {
     softBannedUsers.delete(userId);
+    appealChannels.delete(userId);
+    await deleteSoftBanRecord(message.guild.id, userId);
+    await deleteAppealChannelRecord(message.guild.id, userId);
     try {
       await user.send({ embeds: [new EmbedBuilder().setColor(0x00FF00).setTitle('✅ Access Restored')
         .setDescription(`**Server:** ${message.guild.name}\nYour access has been restored by ${message.author.tag}\n\nYou can now see all channels again.`).setTimestamp()] });
@@ -265,17 +453,22 @@ client.on('messageCreate', async (message) => {
 
 // Interaction handler
 client.on('interactionCreate', async (interaction) => {
+  const commandName = interaction.commandName || interaction.customId || 'unknown';
+
+  try {
   if (!interaction.isChatInputCommand()) {
     if (interaction.isButton()) return handleButtonInteraction(interaction);
     if (interaction.isModalSubmit()) return handleModalSubmit(interaction);
     return;
   }
 
+  if (!interaction.inGuild()) {
+    return interaction.reply({ content: '*This command can only be used in a server*', ephemeral: true });
+  }
+
   if (!hasAdminPermission(interaction.member)) return interaction.reply({ content: '*Admin only*', ephemeral: true });
   if (maintenanceMode) return interaction.reply({ content: '*🟡 Maintenance mode*', ephemeral: true });
 
-  const { commandName } = interaction;
-  try {
     switch (commandName) {
       case 'announce': await handleAnnounce(interaction); break;
       case 'clear': await handleClear(interaction); break;
@@ -286,6 +479,7 @@ client.on('interactionCreate', async (interaction) => {
       case 'stealemojis': await handleStealEmojis(interaction); break;
       case 'warn': await handleWarn(interaction); break;
       case 'closeappeal': await handleCloseAppeal(interaction); break;
+      default: await interaction.reply({ content: '*Unknown command*', ephemeral: true }); break;
     }
   } catch (error) {
     console.error(`Error ${commandName}:`, error);
@@ -297,77 +491,22 @@ client.on('interactionCreate', async (interaction) => {
 
 // ====== DM HANDLER: Banned user messages ======
 async function handleAppealMessage(message) {
-  let banInfo = softBannedUsers.get(message.author.id);
-  if (!banInfo) {
-    const { data: banLogs } = await supabase
-      .from('moderation_logs').select('*').eq('target_user_id', message.author.id).eq('action', 'ban')
-      .order('created_at', { ascending: false }).limit(1);
-    if (banLogs && banLogs.length > 0 && banLogs[0].reason?.startsWith('[SOFTBAN]')) {
-      banInfo = { guildId: banLogs[0].guild_id, guildName: 'the server', reason: banLogs[0].reason.replace('[SOFTBAN] ', ''), moderatorId: banLogs[0].moderator_id, moderatorTag: 'a moderator' };
-    }
-  }
+  const banInfo = await getSoftBanInfo(message.author.id);
 
   if (!banInfo) {
-    return message.author.send({ embeds: [new EmbedBuilder().setColor(0x5865F2).setTitle('🤖 Bot Support')
+    return message.author.send({ embeds: [new EmbedBuilder().setColor(0x5865F2).setTitle('Bot Support')
       .setDescription('This bot handles support and moderation.\n\nIf you were restricted and want to appeal, ensure this bot issued it.').setTimestamp()] });
-  }
-
-  const existingChannelId = appealChannels.get(message.author.id);
-  if (existingChannelId) {
-    const guild = client.guilds.cache.get(banInfo.guildId);
-    if (guild) {
-      const channel = guild.channels.cache.get(existingChannelId);
-      if (channel) {
-        await channel.send(`**${message.author.username}:** ${message.content}`);
-        await message.react('✅');
-        return;
-      }
-    }
-    appealChannels.delete(message.author.id);
   }
 
   const guild = client.guilds.cache.get(banInfo.guildId);
   if (!guild) return message.author.send({ content: '*Error processing appeal*' });
 
   try {
-    let appealCategory = guild.channels.cache.find(c => c.type === ChannelType.GuildCategory && c.name.toLowerCase().includes('appeals'));
-    if (!appealCategory) {
-      appealCategory = await guild.channels.create({
-        name: '🔔 BAN APPEALS', type: ChannelType.GuildCategory,
-        permissionOverwrites: [{ id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] }],
-      });
-    }
+    const appealChannel = await ensureAppealChannel(guild, message.author, banInfo, message.content);
+    await appealChannel.send(`**${message.author.username}:** ${message.content}`);
+    await message.react('\u2705');
 
-    const safeName = message.author.username.replace(/[^a-zA-Z0-9]/g, '').toLowerCase().slice(0, 20);
-    const appealChannel = await guild.channels.create({
-      name: `appeal-${safeName}`, type: ChannelType.GuildText, parent: appealCategory.id,
-      permissionOverwrites: [
-        { id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
-        { id: client.user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.ManageChannels] },
-      ],
-    });
-
-    guild.members.cache.forEach(member => {
-      if (hasAdminPermission(member) && !member.user.bot) {
-        appealChannel.permissionOverwrites.create(member.id, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }).catch(() => {});
-      }
-    });
-
-    appealChannels.set(message.author.id, appealChannel.id);
-
-    const appealHeaderEmbed = new EmbedBuilder().setColor(0xFFA500).setTitle('🔄 New Ban Appeal')
-      .setDescription(`━━━━━━━━━━━━━━━━━━━━━━━\n\n**User:** ${message.author.tag} (${message.author.id})\n**Original Reason:** ${banInfo.reason}\n**Banned by:** ${banInfo.moderatorTag}\n**Status:** 🔇 Soft-banned\n\n━━━━━━━━━━━━━━━━━━━━━━━\n\n**Appeal Message:**\n${message.content}\n\n━━━━━━━━━━━━━━━━━━━━━━━\n\n**📝 Instructions:**\n• Messages from ${message.author.tag} appear here\n• \`!unbanappeal @${message.author.username}\` to restore\n• \`/closeappeal\` or button to close`)
-      .setTimestamp();
-
-    const closeButton = new ButtonBuilder().setCustomId(`close_appeal_${message.author.id}`).setLabel('✅ Close Appeal').setStyle(ButtonStyle.Danger);
-    const row = new ActionRowBuilder().addComponents(closeButton);
-
-    await appealChannel.send({ content: `🔔 **New appeal from ${message.author.tag}**`, embeds: [appealHeaderEmbed], components: [row] });
-
-    const mainChannel = guild.channels.cache.find(c => c.type === ChannelType.GuildText && c.id !== appealChannel.id);
-    if (mainChannel) await mainChannel.send(`🔔 New ban appeal from **${message.author.tag}** — check <#${appealChannel.id}>`);
-
-    await message.author.send({ embeds: [new EmbedBuilder().setColor(0x00FF00).setTitle('✅ Appeal Submitted')
+    await message.author.send({ embeds: [new EmbedBuilder().setColor(0x00FF00).setTitle('Appeal Submitted')
       .setDescription('Your appeal has been sent.\n\n**Keep sending messages here** and they will be reviewed.\n\nPlease be patient.').setTimestamp()] });
   } catch (error) {
     console.error('Error creating appeal channel:', error);
@@ -390,22 +529,32 @@ async function handleButtonInteraction(interaction) {
     pendingBans.delete(modId);
 
     try {
+      const banInfo = { guildId: pending.guild.id, guildName: pending.guild.name, reason: pending.reason, moderatorId: interaction.user.id, moderatorTag: interaction.user.tag, bannedAt: new Date().toISOString(), channels: [] };
+      const appealChannel = await ensureAppealChannel(pending.guild, pending.user, banInfo);
+      let dmSent = false;
+
       try {
-        const appealEmbed = new EmbedBuilder().setColor(RED_COLOR).setTitle('🔨 You have been restricted')
-          .setDescription(`**Server:** ${pending.guild.name}\n**Reason:** ${pending.reason}\n**Moderator:** ${interaction.user.tag}\n\n━━━━━━━━━━━━━━━━━━━━━━━\n\n**🔄 You can appeal!**\n\n• You are still in the server but cannot see channels\n• Send a message to this bot to appeal\n• Your messages will be reviewed by staff`)
+        const appealEmbed = new EmbedBuilder().setColor(RED_COLOR).setTitle('You have been restricted')
+          .setDescription(`**Server:** ${pending.guild.name}\n**Reason:** ${pending.reason}\n**Moderator:** ${interaction.user.tag}\n\n**You can appeal!**\n\nYou can write in ${appealChannel} or send a DM to this bot. Your messages will be reviewed by staff.`)
           .setImage(GIF_URL).setTimestamp();
         await pending.user.send({ embeds: [appealEmbed] });
+        dmSent = true;
       } catch (e) {}
 
-      const modifiedChannels = await applySoftBan(pending.guild, pending.user.id);
-      softBannedUsers.set(pending.user.id, { guildId: pending.guild.id, guildName: pending.guild.name, reason: pending.reason, moderatorId: interaction.user.id, moderatorTag: interaction.user.tag, bannedAt: new Date().toISOString(), channels: modifiedChannels });
+      await appealChannel.send({ content: `${pending.user}, you can appeal here. Staff can read and reply in this channel.` }).catch(() => {});
 
-      await interaction.editReply({ embeds: [new EmbedBuilder().setColor(RED_COLOR).setTitle('🔇 User Soft-Banned')
-        .setDescription(`**User:** ${pending.user.tag}\n**Reason:** ${pending.reason}\n**Moderator:** ${interaction.user.tag}\n**Channels hidden:** ${modifiedChannels.length}\n\nUse \`!unbanappeal ${pending.user.id}\` to restore`)
+      const modifiedChannels = await applySoftBan(pending.guild, pending.user.id, [appealChannel.id]);
+      banInfo.channels = modifiedChannels;
+      softBannedUsers.set(pending.user.id, banInfo);
+      await persistSoftBan(pending.guild.id, pending.user.id, interaction.user.id, pending.reason, modifiedChannels);
+
+      await interaction.editReply({ embeds: [new EmbedBuilder().setColor(RED_COLOR).setTitle('User Soft-Banned')
+        .setDescription(`**User:** ${pending.user.tag}\n**Reason:** ${pending.reason}\n**Moderator:** ${interaction.user.tag}\n**Channels hidden:** ${modifiedChannels.length}\n**Appeal channel:** ${appealChannel}\n**DM sent:** ${dmSent ? 'Yes' : 'No - user probably has DMs closed'}\n\nUse \`!unbanappeal ${pending.user.id}\` to restore`)
         .setImage(GIF_URL).setTimestamp()], components: [] });
 
       await supabase.from('moderation_logs').insert({ guild_id: pending.guild.id, action: 'ban', moderator_id: interaction.user.id, target_user_id: pending.user.id, reason: `[SOFTBAN] ${pending.reason}` });
     } catch (error) {
+      console.error('Soft ban failed:', error);
       await interaction.editReply({ content: '*Failed*', components: [] });
     }
     return;
@@ -469,7 +618,11 @@ async function handleButtonInteraction(interaction) {
     await interaction.deferReply();
     await interaction.editReply({ embeds: [new EmbedBuilder().setColor(RED_COLOR).setTitle('🔒 Appeal Closed').setDescription(`Closed by ${interaction.user.tag}`).setTimestamp()] });
     setTimeout(async () => {
-      try { await interaction.channel.delete(); appealChannels.delete(userId); } catch (e) {}
+      try {
+        await interaction.channel.delete();
+        appealChannels.delete(userId);
+        await deleteAppealChannelRecord(interaction.guild.id, userId);
+      } catch (e) {}
     }, 5000);
   }
 
@@ -560,7 +713,14 @@ async function handleCloseAppeal(interaction) {
   for (const [userId, chId] of appealChannels) { if (chId === channelId) { targetUserId = userId; break; } }
   await interaction.editReply({ embeds: [new EmbedBuilder().setColor(RED_COLOR).setTitle('🔒 Appeal Closed').setDescription(`Closed by ${interaction.user.tag}`).setTimestamp()] });
   setTimeout(async () => {
-    try { const ch = interaction.guild.channels.cache.get(channelId); if (ch) await ch.delete(); if (targetUserId) appealChannels.delete(targetUserId); } catch (e) {}
+    try {
+      const ch = interaction.guild.channels.cache.get(channelId);
+      if (ch) await ch.delete();
+      if (targetUserId) {
+        appealChannels.delete(targetUserId);
+        await deleteAppealChannelRecord(interaction.guild.id, targetUserId);
+      }
+    } catch (e) {}
   }, 5000);
 }
 
