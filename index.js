@@ -223,7 +223,7 @@ async function getSoftBanInfo(userId) {
   try {
     const { data: bans } = await supabase
       .from('soft_bans')
-      .select('*')
+      .select('channel_id')
       .eq('target_user_id', userId)
       .order('created_at', { ascending: false })
       .limit(1);
@@ -275,7 +275,7 @@ async function getExistingAppealChannel(guild, userId) {
   try {
     const { data: rows } = await supabase
       .from('appeal_channels')
-      .select('*')
+      .select('channel_id')
       .eq('guild_id', guild.id)
       .eq('target_user_id', userId)
       .limit(1);
@@ -687,19 +687,7 @@ async function handleModalSubmit(interaction) {
   const description = interaction.fields.getTextInputValue('ticket_description');
 
   try {
-    const { data: existingTickets } = await supabase
-      .from('tickets')
-      .select('*')
-      .eq('guild_id', interaction.guild.id)
-      .eq('creator_id', interaction.user.id)
-      .eq('status', 'open');
-
-    if (existingTickets && existingTickets.length > 0) {
-      return interaction.editReply({ content: '*You already have an open ticket*' });
-    }
-
-    const { data: lastTicket } = await supabase.from('tickets').select('ticket_number').order('ticket_number', { ascending: false }).limit(1);
-    const ticketNumber = lastTicket && lastTicket.length > 0 ? lastTicket[0].ticket_number + 1 : 1;
+    const ticketNumber = Math.floor(Date.now() / 1000) % 100000;
 
     const ticketChannel = await interaction.guild.channels.create({
       name: `ticket-${String(ticketNumber).padStart(4, '0')}-${interaction.user.username}`, type: ChannelType.GuildText, parent: interaction.channel.parent,
@@ -710,7 +698,12 @@ async function handleModalSubmit(interaction) {
       ],
     });
 
-    await supabase.from('tickets').insert({ ticket_number: ticketNumber, guild_id: interaction.guild.id, channel_id: ticketChannel.id, creator_id: interaction.user.id, status: 'open', subject });
+    supabase
+      .from('tickets')
+      .insert({ ticket_number: ticketNumber, guild_id: interaction.guild.id, channel_id: ticketChannel.id, creator_id: interaction.user.id, status: 'open', subject })
+      .then(({ error }) => {
+        if (error) console.error('Could not save ticket:', error);
+      });
 
     const ticketEmbed = new EmbedBuilder().setColor(RED_COLOR).setTitle(`🎫 Ticket #${String(ticketNumber).padStart(4, '0')}`)
       .setDescription(`**Subject:** ${subject}\n\n**Description:**\n${description}\n\n**Status:** 🟢 Open\n**Created by:** ${interaction.user}\n**Date:** <t:${Math.floor(Date.now() / 1000)}:F>`)
@@ -725,7 +718,9 @@ async function handleModalSubmit(interaction) {
     await interaction.editReply({ content: successMessage(`Ticket created: ${ticketChannel}`), ephemeral: true });
 
     const staffRoles = interaction.guild.roles.cache.filter(r => r.permissions.has(PermissionsBitField.Flags.Administrator));
-    if (staffRoles.size > 0) await ticketChannel.send(`📢 ${staffRoles.map(r => r.toString()).join(' ')} - New ticket created`);
+    if (staffRoles.size > 0) {
+      ticketChannel.send(`📢 ${staffRoles.map(r => r.toString()).join(' ')} - New ticket created`).catch(console.error);
+    }
   } catch (error) {
     await interaction.editReply({ content: '*Failed*' });
   }
